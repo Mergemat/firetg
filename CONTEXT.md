@@ -17,6 +17,7 @@ Owns Telegram account authentication state.
 Represents the currently authenticated Telegram account.
 
 - `profiles me` returns the current account profile.
+- `profiles view --username <username>` returns a public user profile, including the Telegram bio/description when available.
 - Use Profile for account identity reads, not Auth.
 
 ### Message
