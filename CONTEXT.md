@@ -39,4 +39,4 @@ Represents a Telegram chat entry in the user's dialog list.
 Represents Telegram dialog filters and the archive.
 
 - `folders list` lists configured dialog filters.
-- Folder identifiers can scope Dialog listing.
+- Archive peer folder `1` and custom dialog filter ids can scope Dialog listing.
