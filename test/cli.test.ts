@@ -387,6 +387,88 @@ describe("firetg cli", () => {
     expect(harness.stderr.join("")).toBe("");
   });
 
+  test("channels messages emits channel messages as JSON", async () => {
+    const harness = createHarness();
+    const calls: Array<{ chat: string; limit: number; search?: string }> = [];
+    const { env } = await createStoredAuthEnv();
+
+    const exitCode = await runCli(
+      ["channels", "messages", "--username", "example_channel", "--limit", "2"],
+      {
+        env,
+        io: harness.io,
+        createTelegram: async () => fakeTelegram({
+          listMessages: async (options) => {
+            calls.push(options);
+            return [
+              {
+                id: 35,
+                date: 1_800_000_200,
+                text: "latest channel post",
+                chatId: "2139391239",
+              },
+            ];
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([{ chat: "example_channel", limit: 2 }]);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: true,
+      data: [
+        {
+          id: 35,
+          date: 1_800_000_200,
+          text: "latest channel post",
+          chatId: "2139391239",
+        },
+      ],
+    });
+  });
+
+  test("channels pinned emits pinned channel messages as JSON", async () => {
+    const harness = createHarness();
+    const calls: Array<{ chat: string; limit: number }> = [];
+    const { env } = await createStoredAuthEnv();
+
+    const exitCode = await runCli(
+      ["channels", "pinned", "--username", "example_channel", "--limit", "2"],
+      {
+        env,
+        io: harness.io,
+        createTelegram: async () => fakeTelegram({
+          listPinnedMessages: async (options) => {
+            calls.push(options);
+            return [
+              {
+                id: 35,
+                date: 1_800_000_200,
+                text: "latest pin",
+                chatId: "2139391239",
+              },
+            ];
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([{ chat: "example_channel", limit: 2 }]);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: true,
+      data: [
+        {
+          id: 35,
+          date: 1_800_000_200,
+          text: "latest pin",
+          chatId: "2139391239",
+        },
+      ],
+    });
+  });
+
   test("messages send accepts a username destination", async () => {
     const harness = createHarness();
     const sent: Array<{ to: string; text: string }> = [];
