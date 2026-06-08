@@ -51,7 +51,8 @@ bun run index.ts messages list --chat me --search deploy --limit 10
 Telegram folder notes:
 
 - `folders list` reads configured dialog filters via MTProto.
-- `dialogs list --folder <id>` lists chats in a folder. Folder `1` is Telegram's archive by default.
+- `dialogs list --folder 1` lists Telegram's archive peer folder.
+- `dialogs list --folder <custom-filter-id>` lists chats matching a custom chat folder from `folders list`.
 - `messages list` reads history for a single chat; folders organize dialogs, not message streams.
 
 ## Agent Contract
