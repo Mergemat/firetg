@@ -1,0 +1,71 @@
+import type { TelegramConfig } from "../config";
+
+export type Account = {
+  id?: string;
+  username?: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+};
+
+export type SentMessage = {
+  id?: number;
+  date?: number;
+  text?: string;
+};
+
+export type DialogSummary = {
+  id?: string;
+  title?: string;
+  folderId?: number;
+  unreadCount?: number;
+  isUser?: boolean;
+  isGroup?: boolean;
+  isChannel?: boolean;
+};
+
+export type FolderSummary = {
+  id?: number;
+  title: string;
+  type: string;
+  emoticon?: string;
+  color?: number;
+};
+
+export type MessageSummary = {
+  id?: number;
+  date?: number;
+  text?: string;
+  senderId?: string;
+  chatId?: string;
+  outgoing?: boolean;
+};
+
+export type LoginParams =
+  | {
+      mode: "phone";
+      phoneNumber: string;
+      phoneCode: (isCodeViaApp?: boolean) => Promise<string>;
+      password: (hint?: string) => Promise<string>;
+    }
+  | {
+      mode: "qr";
+      qrCode: (qrCode: { token: Buffer; expires: number }) => Promise<void>;
+      password: (hint?: string) => Promise<string>;
+    };
+
+export type FireTgClient = {
+  login: (params: LoginParams) => Promise<{ session: string }>;
+  getMe: () => Promise<Account>;
+  sendMessage: (to: string, text: string) => Promise<SentMessage>;
+  listFolders: () => Promise<FolderSummary[]>;
+  listDialogs: (options: { limit: number; folder?: number }) => Promise<DialogSummary[]>;
+  listMessages: (options: {
+    chat: string;
+    limit: number;
+    search?: string;
+  }) => Promise<MessageSummary[]>;
+  disconnect?: () => Promise<void>;
+};
+
+export type CreateTelegramClient = (config: TelegramConfig) => Promise<FireTgClient>;
