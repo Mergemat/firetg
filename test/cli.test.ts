@@ -261,7 +261,42 @@ describe("firetg cli", () => {
     expect(harness.stderr.join("")).toBe("");
   });
 
-  test("profiles view validates --username before loading config", async () => {
+  test("profiles view accepts a known user id", async () => {
+    const harness = createHarness();
+    const viewed: string[] = [];
+    const { env } = await createStoredAuthEnv();
+
+    const exitCode = await runCli(
+      ["profiles", "view", "--id", "123456789"],
+      {
+        env,
+        io: harness.io,
+        createTelegram: async () => fakeTelegram({
+          getProfile: async (user) => {
+            viewed.push(user);
+            return {
+              id: "123456789",
+              username: "clrdrv",
+              firstName: "Kirill",
+            };
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(viewed).toEqual(["123456789"]);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: true,
+      data: {
+        id: "123456789",
+        username: "clrdrv",
+        firstName: "Kirill",
+      },
+    });
+  });
+
+  test("profiles view validates lookup flags before loading config", async () => {
     const harness = createHarness();
 
     const exitCode = await runCli(["profiles", "view"], {
@@ -274,18 +309,39 @@ describe("firetg cli", () => {
       ok: false,
       error: {
         code: "INPUT_ERROR",
-        message: "profiles view requires --username",
+        message: "profiles view requires --username or --id",
       },
     });
   });
 
-  test("messages send sends a message to a peer and emits JSON", async () => {
+  test("profiles view rejects ambiguous lookup flags before loading config", async () => {
+    const harness = createHarness();
+
+    const exitCode = await runCli(
+      ["profiles", "view", "--username", "firetg", "--id", "42"],
+      {
+        env: {},
+        io: harness.io,
+      },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: false,
+      error: {
+        code: "INPUT_ERROR",
+        message: "profiles view accepts either --username or --id, not both",
+      },
+    });
+  });
+
+  test("messages send accepts a username destination", async () => {
     const harness = createHarness();
     const sent: Array<{ to: string; text: string }> = [];
     const { env } = await createStoredAuthEnv();
 
     const exitCode = await runCli(
-      ["messages", "send", "--to", "me", "--text", "hello"],
+      ["messages", "send", "--username", "telegram", "--text", "hello"],
       {
         env,
         io: harness.io,
@@ -299,10 +355,67 @@ describe("firetg cli", () => {
     );
 
     expect(exitCode).toBe(0);
-    expect(sent).toEqual([{ to: "me", text: "hello" }]);
+    expect(sent).toEqual([{ to: "telegram", text: "hello" }]);
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
       ok: true,
       data: { id: 7, date: 1_800_000_000, text: "hello" },
+    });
+  });
+
+  test("messages send accepts a user id destination", async () => {
+    const harness = createHarness();
+    const sent: Array<{ to: string; text: string }> = [];
+    const { env } = await createStoredAuthEnv();
+
+    const exitCode = await runCli(
+      ["messages", "send", "--id", "123456789", "--text", "hello"],
+      {
+        env,
+        io: harness.io,
+        createTelegram: async () => fakeTelegram({
+          sendMessage: async (to, text) => {
+            sent.push({ to, text });
+            return { id: 8, date: 1_800_000_001, text };
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(sent).toEqual([{ to: "123456789", text: "hello" }]);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: true,
+      data: { id: 8, date: 1_800_000_001, text: "hello" },
+    });
+  });
+
+  test("messages send rejects ambiguous destination flags before loading config", async () => {
+    const harness = createHarness();
+
+    const exitCode = await runCli(
+      [
+        "messages",
+        "send",
+        "--username",
+        "telegram",
+        "--id",
+        "123456789",
+        "--text",
+        "hello",
+      ],
+      {
+        env: {},
+        io: harness.io,
+      },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: false,
+      error: {
+        code: "INPUT_ERROR",
+        message: "messages send accepts only one destination flag",
+      },
     });
   });
 
@@ -319,7 +432,28 @@ describe("firetg cli", () => {
       ok: false,
       error: {
         code: "INPUT_ERROR",
-        message: "messages send requires --to and --text",
+        message: "messages send requires --username or --id plus --text",
+      },
+    });
+  });
+
+  test("messages send rejects removed --to flag before loading config", async () => {
+    const harness = createHarness();
+
+    const exitCode = await runCli(
+      ["messages", "send", "--to", "me", "--text", "hello"],
+      {
+        env: {},
+        io: harness.io,
+      },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: false,
+      error: {
+        code: "INPUT_ERROR",
+        message: "messages send does not support --to; use --username or --id",
       },
     });
   });
