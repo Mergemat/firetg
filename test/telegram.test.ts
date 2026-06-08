@@ -6,7 +6,7 @@ import {
   listDialogSummaries,
   type DialogSummary,
   type DialogSource,
-} from "../src/telegram";
+} from "../src/telegram/dialogs";
 
 const title = new Api.TextWithEntities({ text: "Managers", entities: [] });
 
@@ -103,7 +103,7 @@ describe("telegram dialog listing", () => {
     ]);
   });
 
-  test("explicit custom folders fall back to scanning when peer fetch fails", async () => {
+  test("explicit custom folders surface peer fetch failures", async () => {
     const first = inputUser(1);
 
     const source: DialogSource = {
@@ -133,6 +133,6 @@ describe("telegram dialog listing", () => {
 
     await expect(
       listDialogSummaries(source, { folder: 78, limit: 10 }),
-    ).resolves.toEqual([{ id: "1", title: "Recovered" }]);
+    ).rejects.toThrow("peer fetch failed");
   });
 });
