@@ -9,9 +9,13 @@ export const meCommand: CommandSpec = {
     summary: "Show current Telegram account",
     description:
       "Returns the Telegram profile for the stored session as JSON.",
-    options: ["--help    Show this help"],
-    examples: ["firetg profiles me"],
-    aliases: ["firetg me"],
+    examples: [
+      {
+        command: "firetg profiles me",
+        summary: "Print the authenticated account profile",
+      },
+    ],
+    aliases: ["me"],
   },
   matches: (parsed) =>
     matchesScopedCommand(parsed, "profiles", "me") || parsed.command === "me",
@@ -30,12 +34,22 @@ export const profileViewCommand: CommandSpec = {
     description:
       "Returns the public Telegram profile for a username as JSON.",
     options: [
-      "--username <username>    Telegram username, with or without @",
-      "--help                   Show this help",
+      {
+        name: "--username",
+        value: "<username>",
+        summary: "Telegram username, with or without @",
+        required: true,
+      },
     ],
     examples: [
-      "firetg profiles view --username telegram",
-      "firetg profiles view --username @telegram",
+      {
+        command: "firetg profiles view --username telegram",
+        summary: "Lookup a public username",
+      },
+      {
+        command: "firetg profiles view --username @telegram",
+        summary: "Lookup a username with @ prefix",
+      },
     ],
   },
   matches: (parsed) => matchesScopedCommand(parsed, "profiles", "view"),
