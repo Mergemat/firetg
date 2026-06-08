@@ -63,11 +63,30 @@ async function getPinnedMessage(
 ): Promise<MessageSummary | undefined> {
   if (pinnedMsgId === undefined) return undefined;
 
-  const messages = await client.getMessages(channel, { ids: pinnedMsgId });
-  const message = messages[0];
+  const response = await client.invoke(
+    new Api.channels.GetMessages({
+      channel,
+      id: [new Api.InputMessageID({ id: pinnedMsgId })],
+    }),
+  );
+  const message = getFirstMessage(response);
   if (!(message instanceof Api.Message)) return undefined;
 
   return serializePinnedMessage(message);
+}
+
+function getFirstMessage(
+  response: Api.messages.TypeMessages,
+): Api.TypeMessage | undefined {
+  if (
+    response instanceof Api.messages.Messages ||
+    response instanceof Api.messages.MessagesSlice ||
+    response instanceof Api.messages.ChannelMessages
+  ) {
+    return response.messages[0];
+  }
+
+  return undefined;
 }
 
 function serializeChannelDetails(

@@ -251,29 +251,40 @@ describe("telegram channel details", () => {
         return channel;
       },
       invoke: async (request: Api.AnyRequest) => {
-        expect(request).toBeInstanceOf(Api.channels.GetFullChannel);
-        return new Api.messages.ChatFull({
-          fullChat: new Api.ChannelFull({
-            id: channel.id,
-            about: "Agent-ready Telegram CLI",
-            participantsCount: 123,
-            readInboxMaxId: 0,
-            readOutboxMaxId: 0,
-            unreadCount: 0,
-            chatPhoto: new Api.PhotoEmpty({ id: bigInt(1) }),
-            notifySettings: new Api.PeerNotifySettings({}),
-            botInfo: [],
-            pinnedMsgId: 7,
-            pts: 1,
-          }),
+        if (request instanceof Api.channels.GetFullChannel) {
+          return new Api.messages.ChatFull({
+            fullChat: new Api.ChannelFull({
+              id: channel.id,
+              about: "Agent-ready Telegram CLI",
+              participantsCount: 123,
+              readInboxMaxId: 0,
+              readOutboxMaxId: 0,
+              unreadCount: 0,
+              chatPhoto: new Api.PhotoEmpty({ id: bigInt(1) }),
+              notifySettings: new Api.PeerNotifySettings({}),
+              botInfo: [],
+              pinnedMsgId: 7,
+              pts: 1,
+            }),
+            chats: [channel],
+            users: [],
+          });
+        }
+
+        expect(request).toBeInstanceOf(Api.channels.GetMessages);
+        expect((request as Api.channels.GetMessages).channel).toBe(channel);
+        expect((request as Api.channels.GetMessages).id).toEqual([
+          new Api.InputMessageID({ id: 7 }),
+        ]);
+        return new Api.messages.Messages({
+          messages: [pinned],
+          topics: [],
           chats: [channel],
           users: [],
         });
       },
-      getMessages: async (entity: Api.Channel, params: { ids: number }) => {
-        expect(entity).toBe(channel);
-        expect(params).toEqual({ ids: 7 });
-        return [pinned];
+      getMessages: async () => {
+        throw new Error("channel pins should not use client.getMessages");
       },
     };
 
