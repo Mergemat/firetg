@@ -33,6 +33,7 @@ function fakeTelegram(overrides: Partial<FireTgClient> = {}): FireTgClient {
     login: async () => ({ session: "" }),
     logout: async () => {},
     getMe: async () => ({}),
+    getProfile: async () => ({}),
     sendMessage: async () => ({}),
     listFolders: async () => [],
     listDialogs: async () => [],
@@ -217,6 +218,64 @@ describe("firetg cli", () => {
       },
     });
     expect(harness.stderr.join("")).toBe("");
+  });
+
+  test("profiles view emits a public profile by username as JSON", async () => {
+    const harness = createHarness();
+    const viewed: string[] = [];
+    const { env } = await createStoredAuthEnv();
+
+    const exitCode = await runCli(
+      ["profiles", "view", "--username", "firetg"],
+      {
+        env,
+        io: harness.io,
+        createTelegram: async () => fakeTelegram({
+          getProfile: async (username) => {
+            viewed.push(username);
+            return {
+              id: "42",
+              username: "firetg",
+              firstName: "Fire",
+              lastName: "TG",
+              about: "Agent-ready Telegram CLI",
+            };
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(viewed).toEqual(["firetg"]);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: true,
+      data: {
+        id: "42",
+        username: "firetg",
+        firstName: "Fire",
+        lastName: "TG",
+        about: "Agent-ready Telegram CLI",
+      },
+    });
+    expect(harness.stderr.join("")).toBe("");
+  });
+
+  test("profiles view validates --username before loading config", async () => {
+    const harness = createHarness();
+
+    const exitCode = await runCli(["profiles", "view"], {
+      env: {},
+      io: harness.io,
+    });
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: false,
+      error: {
+        code: "INPUT_ERROR",
+        message: "profiles view requires --username",
+      },
+    });
   });
 
   test("messages send sends a message to a peer and emits JSON", async () => {
