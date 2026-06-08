@@ -1,17 +1,19 @@
 import { readPositiveInt } from "../args";
 import { writeError, writeJson } from "../output";
-import { runWithTelegram } from "./shared";
+import { matchesScopedCommand, runWithTelegram } from "./shared";
 import type { CommandSpec } from "./types";
 
 export const messagesListCommand: CommandSpec = {
   id: "messages.list",
-  usage: "messages:list --chat <peer> [--limit <n>] [--search <query>]",
-  matches: (parsed) => parsed.command === "messages:list",
+  usage: "messages list --chat <peer> [--limit <n>] [--search <query>]",
+  matches: (parsed) =>
+    matchesScopedCommand(parsed, "messages", "list") ||
+    parsed.command === "messages:list",
   async run({ parsed, context }) {
     const chat = parsed.flags.get("chat");
 
     if (!chat) {
-      writeError(context, "INPUT_ERROR", "messages:list requires --chat");
+      writeError(context, "INPUT_ERROR", "messages list requires --chat");
       return 1;
     }
 

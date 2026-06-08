@@ -1,5 +1,6 @@
 import { readTelegramConfig } from "../../config";
 import { createTeleprotoClient, type FireTgClient } from "../../telegram";
+import type { ParsedArgs } from "../args";
 import { errorMessage, writeError } from "../output";
 import type { CliContext } from "../types";
 
@@ -31,4 +32,12 @@ export async function runWithTelegram(
   } finally {
     await telegram?.disconnect?.();
   }
+}
+
+export function matchesScopedCommand(
+  parsed: ParsedArgs,
+  scope: string,
+  action: string,
+): boolean {
+  return parsed.command === scope && parsed.subcommand === action;
 }
