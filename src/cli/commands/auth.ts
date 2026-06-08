@@ -1,5 +1,6 @@
 import { createTelegramConfig } from "../../config";
 import {
+  deleteSession,
   readApiCredentials,
   writeApiCredentials,
   writeSession,
@@ -17,6 +18,14 @@ export const authLoginCommand: CommandSpec = {
   matches: (parsed) =>
     parsed.command === "auth" && parsed.subcommand === "login",
   run: ({ parsed, context }) => runAuthLogin(parsed.flags, context),
+};
+
+export const authLogoutCommand: CommandSpec = {
+  id: "auth.logout",
+  usage: "auth logout",
+  matches: (parsed) =>
+    parsed.command === "auth" && parsed.subcommand === "logout",
+  run: ({ context }) => runAuthLogout(context),
 };
 
 async function runAuthLogin(
@@ -59,6 +68,20 @@ async function runAuthLogin(
     return 2;
   } finally {
     await telegram?.disconnect?.();
+  }
+}
+
+async function runAuthLogout(context: CliContext): Promise<number> {
+  try {
+    const sessionPath = await deleteSession(context.env);
+
+    writeJson(context, true, {
+      data: { sessionPath },
+    });
+    return 0;
+  } catch (error) {
+    writeError(context, "CONFIG_ERROR", errorMessage(error));
+    return 1;
   }
 }
 

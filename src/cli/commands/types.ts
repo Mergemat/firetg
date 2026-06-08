@@ -12,3 +12,8 @@ export type CommandSpec = {
   matches: (parsed: ParsedArgs) => boolean;
   run: (input: CommandInput) => Promise<number>;
 };
+
+export type CommandModule = {
+  scope: string;
+  commands: CommandSpec[];
+};
