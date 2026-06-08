@@ -1,12 +1,14 @@
 import { readPositiveInt } from "../args";
 import { writeJson } from "../output";
-import { runWithTelegram } from "./shared";
+import { matchesScopedCommand, runWithTelegram } from "./shared";
 import type { CommandSpec } from "./types";
 
 export const dialogsListCommand: CommandSpec = {
   id: "dialogs.list",
-  usage: "dialogs:list [--folder <id>] [--limit <n>]",
-  matches: (parsed) => parsed.command === "dialogs:list",
+  usage: "dialogs list [--folder <id>] [--limit <n>]",
+  matches: (parsed) =>
+    matchesScopedCommand(parsed, "dialogs", "list") ||
+    parsed.command === "dialogs:list",
   run: ({ parsed, context }) =>
     runWithTelegram(context, async (telegram) => {
       writeJson(context, true, {
