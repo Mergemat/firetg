@@ -7,6 +7,7 @@ import {
   type DialogSummary,
   type DialogSource,
 } from "../src/telegram/dialogs";
+import { sendTelegramMessage } from "../src/telegram/messages";
 
 const title = new Api.TextWithEntities({ text: "Managers", entities: [] });
 
@@ -134,5 +135,42 @@ describe("telegram dialog listing", () => {
     await expect(
       listDialogSummaries(source, { folder: 78, limit: 10 }),
     ).rejects.toThrow("peer fetch failed");
+  });
+});
+
+describe("telegram message sending", () => {
+  test("known numeric user ids resolve through dialogs before sending", async () => {
+    const user = new Api.User({
+      id: bigInt(116040563),
+      accessHash: bigInt(1),
+      firstName: "Kirill",
+    });
+    let sentEntity: unknown;
+
+    const client = {
+      getEntity: async () => {
+        throw new Error("direct entity lookup failed");
+      },
+      getMe: async () => new Api.User({ id: bigInt(1) }),
+      getDialogs: async () => [{ entity: user }],
+      sendMessage: async (entity: unknown, params: { message: string }) => {
+        sentEntity = entity;
+        return new Api.Message({
+          id: 9,
+          date: 1_800_000_002,
+          message: params.message,
+          peerId: new Api.PeerUser({ userId: user.id }),
+        });
+      },
+    };
+
+    await expect(
+      sendTelegramMessage(client as never, "116040563", "hello"),
+    ).resolves.toEqual({
+      id: 9,
+      date: 1_800_000_002,
+      text: "hello",
+    });
+    expect(sentEntity).toBe(user);
   });
 });
