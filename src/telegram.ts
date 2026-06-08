@@ -1,4 +1,5 @@
 import { Api, TelegramClient } from "teleproto";
+import { Logger, LogLevel } from "teleproto/extensions/Logger";
 import { StringSession } from "teleproto/sessions";
 import type { TelegramConfig } from "./config";
 
@@ -80,7 +81,10 @@ export async function createTeleprotoClient(
     new StringSession(config.session),
     config.apiId,
     config.apiHash,
-    { connectionRetries: 5 },
+    {
+      baseLogger: new Logger(LogLevel.NONE),
+      connectionRetries: 5,
+    },
   );
 
   if (config.session) {
