@@ -23,7 +23,7 @@ describe("cli architecture", () => {
       {
         scope: "channels",
         summary: "Telegram channel details",
-        commands: ["channels.view"],
+        commands: ["channels.view", "channels.messages", "channels.pinned"],
       },
       {
         scope: "messages",
@@ -52,6 +52,8 @@ describe("cli architecture", () => {
       "profiles.me",
       "profiles.view",
       "channels.view",
+      "channels.messages",
+      "channels.pinned",
       "messages.send",
       "messages.list",
       "messages.pinned",
