@@ -43,6 +43,9 @@ firetg profiles me
 firetg profiles view --username telegram
 firetg profiles view --id 116040563
 
+firetg channels view --username telegram
+firetg channels view --id 100
+
 firetg messages send --username telegram --text "hello"
 firetg messages send --id 116040563 --text "hello"
 firetg messages list --chat me --limit 20
@@ -59,6 +62,7 @@ Use `--help` for more detail:
 ```bash
 firetg --help
 firetg messages --help
+firetg channels view --help
 firetg messages list --help
 ```
 

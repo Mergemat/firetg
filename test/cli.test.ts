@@ -34,6 +34,7 @@ function fakeTelegram(overrides: Partial<FireTgClient> = {}): FireTgClient {
     logout: async () => {},
     getMe: async () => ({}),
     getProfile: async () => ({}),
+    getChannel: async () => ({}),
     sendMessage: async () => ({}),
     listFolders: async () => [],
     listDialogs: async () => [],
@@ -333,6 +334,56 @@ describe("firetg cli", () => {
         message: "profiles view accepts either --username or --id, not both",
       },
     });
+  });
+
+  test("channels view emits channel details by username as JSON", async () => {
+    const harness = createHarness();
+    const viewed: string[] = [];
+    const { env } = await createStoredAuthEnv();
+
+    const exitCode = await runCli(
+      ["channels", "view", "--username", "firetg"],
+      {
+        env,
+        io: harness.io,
+        createTelegram: async () => fakeTelegram({
+          getChannel: async (channel) => {
+            viewed.push(channel);
+            return {
+              id: "100",
+              title: "FireTG",
+              username: "firetg",
+              description: "Agent-ready Telegram CLI",
+              participantsCount: 123,
+              pinnedMessage: {
+                id: 7,
+                date: 1_800_000_003,
+                text: "Start here",
+              },
+            };
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(viewed).toEqual(["firetg"]);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: true,
+      data: {
+        id: "100",
+        title: "FireTG",
+        username: "firetg",
+        description: "Agent-ready Telegram CLI",
+        participantsCount: 123,
+        pinnedMessage: {
+          id: 7,
+          date: 1_800_000_003,
+          text: "Start here",
+        },
+      },
+    });
+    expect(harness.stderr.join("")).toBe("");
   });
 
   test("messages send accepts a username destination", async () => {
