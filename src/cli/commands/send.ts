@@ -1,17 +1,23 @@
 import { writeError, writeJson } from "../output";
-import { runWithTelegram } from "./shared";
+import { matchesScopedCommand, runWithTelegram } from "./shared";
 import type { CommandSpec } from "./types";
 
 export const sendCommand: CommandSpec = {
-  id: "send",
-  usage: "send --to <peer> --text <message>",
-  matches: (parsed) => parsed.command === "send",
+  id: "messages.send",
+  usage: "messages send --to <peer> --text <message>",
+  matches: (parsed) =>
+    matchesScopedCommand(parsed, "messages", "send") ||
+    parsed.command === "send",
   async run({ parsed, context }) {
     const to = parsed.flags.get("to");
     const text = parsed.flags.get("text");
 
     if (!to || !text) {
-      writeError(context, "INPUT_ERROR", "send requires --to and --text");
+      writeError(
+        context,
+        "INPUT_ERROR",
+        "messages send requires --to and --text",
+      );
       return 1;
     }
 

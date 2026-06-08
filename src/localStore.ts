@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export type ApiCredentials = {
@@ -103,6 +103,15 @@ export async function writeSession(
   await chmod(paths.session, 0o600);
 
   return paths.session;
+}
+
+export async function deleteSession(
+  env: Record<string, string | undefined>,
+): Promise<string> {
+  const path = resolveStorePaths(env).session;
+
+  await rm(path, { force: true });
+  return path;
 }
 
 async function ensureStoreDirectory(directory: string) {

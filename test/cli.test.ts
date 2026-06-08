@@ -76,8 +76,9 @@ describe("firetg cli", () => {
 
     expect(exitCode).toBe(0);
     expect(harness.stdout.join("")).toContain("auth login");
-    expect(harness.stdout.join("")).toContain("folders:list");
-    expect(harness.stdout.join("")).toContain("messages:list");
+    expect(harness.stdout.join("")).toContain("profiles me");
+    expect(harness.stdout.join("")).toContain("folders list");
+    expect(harness.stdout.join("")).toContain("messages list");
     expect(harness.stderr.join("")).toBe("");
   });
 
@@ -86,7 +87,7 @@ describe("firetg cli", () => {
     const configHome = await mkdtemp(join(tmpdir(), "firetg-test-"));
     const configPath = join(configHome, "firetg", "config.json");
 
-    const exitCode = await runCli(["me"], {
+    const exitCode = await runCli(["profiles", "me"], {
       env: { XDG_CONFIG_HOME: configHome },
       io: harness.io,
     });
@@ -115,7 +116,7 @@ describe("firetg cli", () => {
       `${JSON.stringify({ apiId: 123, apiHash: "hash" })}\n`,
     );
 
-    const exitCode = await runCli(["me"], {
+    const exitCode = await runCli(["profiles", "me"], {
       env: {
         XDG_CONFIG_HOME: configHome,
       },
@@ -132,11 +133,11 @@ describe("firetg cli", () => {
     });
   });
 
-  test("me emits the current account as JSON", async () => {
+  test("profiles me emits the current account as JSON", async () => {
     const harness = createHarness();
     const { env } = await createStoredAuthEnv();
 
-    const exitCode = await runCli(["me"], {
+    const exitCode = await runCli(["profiles", "me"], {
       env,
       io: harness.io,
       createTelegram: async () => fakeTelegram({
@@ -164,13 +165,13 @@ describe("firetg cli", () => {
     expect(harness.stderr.join("")).toBe("");
   });
 
-  test("send sends a message to a peer and emits JSON", async () => {
+  test("messages send sends a message to a peer and emits JSON", async () => {
     const harness = createHarness();
     const sent: Array<{ to: string; text: string }> = [];
     const { env } = await createStoredAuthEnv();
 
     const exitCode = await runCli(
-      ["send", "--to", "me", "--text", "hello"],
+      ["messages", "send", "--to", "me", "--text", "hello"],
       {
         env,
         io: harness.io,
@@ -191,10 +192,10 @@ describe("firetg cli", () => {
     });
   });
 
-  test("send validates required flags before loading config", async () => {
+  test("messages send validates required flags before loading config", async () => {
     const harness = createHarness();
 
-    const exitCode = await runCli(["send"], {
+    const exitCode = await runCli(["messages", "send"], {
       env: {},
       io: harness.io,
     });
@@ -204,16 +205,16 @@ describe("firetg cli", () => {
       ok: false,
       error: {
         code: "INPUT_ERROR",
-        message: "send requires --to and --text",
+        message: "messages send requires --to and --text",
       },
     });
   });
 
-  test("folders:list emits Telegram folders as JSON", async () => {
+  test("folders list emits Telegram folders as JSON", async () => {
     const harness = createHarness();
     const { env } = await createStoredAuthEnv();
 
-    const exitCode = await runCli(["folders:list"], {
+    const exitCode = await runCli(["folders", "list"], {
       env,
       io: harness.io,
       createTelegram: async () => fakeTelegram({
@@ -234,13 +235,13 @@ describe("firetg cli", () => {
     });
   });
 
-  test("dialogs:list scopes dialogs to a folder and emits JSON", async () => {
+  test("dialogs list scopes dialogs to a folder and emits JSON", async () => {
     const harness = createHarness();
     const calls: Array<{ limit: number; folder?: number }> = [];
     const { env } = await createStoredAuthEnv();
 
     const exitCode = await runCli(
-      ["dialogs:list", "--folder", "2", "--limit", "3"],
+      ["dialogs", "list", "--folder", "2", "--limit", "3"],
       {
         env,
         io: harness.io,
@@ -277,13 +278,13 @@ describe("firetg cli", () => {
     });
   });
 
-  test("messages:list emits chat messages as JSON", async () => {
+  test("messages list emits chat messages as JSON", async () => {
     const harness = createHarness();
     const calls: Array<{ chat: string; limit: number; search?: string }> = [];
     const { env } = await createStoredAuthEnv();
 
     const exitCode = await runCli(
-      ["messages:list", "--chat", "me", "--limit", "2", "--search", "deploy"],
+      ["messages", "list", "--chat", "me", "--limit", "2", "--search", "deploy"],
       {
         env,
         io: harness.io,
@@ -320,10 +321,10 @@ describe("firetg cli", () => {
     });
   });
 
-  test("messages:list validates --chat before loading config", async () => {
+  test("messages list validates --chat before loading config", async () => {
     const harness = createHarness();
 
-    const exitCode = await runCli(["messages:list"], {
+    const exitCode = await runCli(["messages", "list"], {
       env: {},
       io: harness.io,
     });
@@ -333,7 +334,7 @@ describe("firetg cli", () => {
       ok: false,
       error: {
         code: "INPUT_ERROR",
-        message: "messages:list requires --chat",
+        message: "messages list requires --chat",
       },
     });
   });
@@ -437,11 +438,29 @@ describe("firetg cli", () => {
     expect(stderr.join("")).toBe("");
   });
 
+  test("auth logout removes the stored session file", async () => {
+    const harness = createHarness();
+    const { env, sessionPath } = await createStoredAuthEnv();
+
+    const exitCode = await runCli(["auth", "logout"], {
+      env,
+      io: harness.io,
+    });
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: true,
+      data: { sessionPath },
+    });
+    await expect(readFile(sessionPath, "utf8")).rejects.toThrow();
+    expect(harness.stderr.join("")).toBe("");
+  });
+
   test("Telegram errors become agent-readable JSON", async () => {
     const harness = createHarness();
     const { env } = await createStoredAuthEnv();
 
-    const exitCode = await runCli(["me"], {
+    const exitCode = await runCli(["profiles", "me"], {
       env,
       io: harness.io,
       createTelegram: async () => fakeTelegram({
