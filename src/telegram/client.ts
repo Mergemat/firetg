@@ -9,7 +9,7 @@ import {
 } from "./dialogs";
 import { listTelegramFolders } from "./folders";
 import { listTelegramMessages, sendTelegramMessage } from "./messages";
-import { getCurrentAccount } from "./profile";
+import { getCurrentAccount, getPublicProfile } from "./profile";
 import type { FireTgClient } from "./types";
 
 export async function createTeleprotoClient(
@@ -41,6 +41,7 @@ export async function createTeleprotoClient(
       }
     },
     getMe: () => getCurrentAccount(client),
+    getProfile: (username) => getPublicProfile(client, username),
     sendMessage: (to, text) => sendTelegramMessage(client, to, text),
     listFolders: async () =>
       listTelegramFolders(await dialogSource.getDialogFilters()),

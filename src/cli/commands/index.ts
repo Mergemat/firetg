@@ -1,7 +1,7 @@
 import { authLoginCommand, authLogoutCommand } from "./auth";
 import { dialogsListCommand } from "./dialogs";
 import { foldersListCommand } from "./folders";
-import { meCommand } from "./me";
+import { meCommand, profileViewCommand } from "./me";
 import { messagesListCommand } from "./messages";
 import { sendCommand } from "./send";
 import type { CommandModule, CommandSpec } from "./types";
@@ -16,9 +16,10 @@ export const commandModules: CommandModule[] = [
   },
   {
     scope: "profiles",
-    summary: "Current Telegram account",
-    description: "Inspect the Telegram account bound to the stored session.",
-    commands: [meCommand],
+    summary: "Telegram account and user profiles",
+    description:
+      "Inspect the stored session account or a public Telegram user profile.",
+    commands: [meCommand, profileViewCommand],
   },
   {
     scope: "messages",

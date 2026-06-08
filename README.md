@@ -50,6 +50,7 @@ bun run index.ts auth login
 bun run index.ts auth login --phone
 bun run index.ts auth logout
 bun run index.ts profiles me
+bun run index.ts profiles view --username telegram
 bun run index.ts messages send --to me --text "hello"
 bun run index.ts folders list
 bun run index.ts dialogs list --folder 1 --limit 20
