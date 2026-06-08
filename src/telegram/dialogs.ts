@@ -1,79 +1,10 @@
 import { Api, TelegramClient } from "teleproto";
-import { Logger, LogLevel } from "teleproto/extensions/Logger";
-import { StringSession } from "teleproto/sessions";
 import { getDisplayName, getPeerId } from "teleproto/Utils";
 import type { Entity } from "teleproto/define";
-import type { TelegramConfig } from "./config";
+import type { DialogSummary } from "./types";
 
-export type Account = {
-  id?: string;
-  username?: string;
-  firstName?: string;
-  lastName?: string;
-  phone?: string;
-};
+export type { DialogSummary } from "./types";
 
-export type SentMessage = {
-  id?: number;
-  date?: number;
-  text?: string;
-};
-
-export type DialogSummary = {
-  id?: string;
-  title?: string;
-  folderId?: number;
-  unreadCount?: number;
-  isUser?: boolean;
-  isGroup?: boolean;
-  isChannel?: boolean;
-};
-
-export type FolderSummary = {
-  id?: number;
-  title: string;
-  type: string;
-  emoticon?: string;
-  color?: number;
-};
-
-export type MessageSummary = {
-  id?: number;
-  date?: number;
-  text?: string;
-  senderId?: string;
-  chatId?: string;
-  outgoing?: boolean;
-};
-
-export type LoginParams =
-  | {
-      mode: "phone";
-      phoneNumber: string;
-      phoneCode: (isCodeViaApp?: boolean) => Promise<string>;
-      password: (hint?: string) => Promise<string>;
-    }
-  | {
-      mode: "qr";
-      qrCode: (qrCode: { token: Buffer; expires: number }) => Promise<void>;
-      password: (hint?: string) => Promise<string>;
-    };
-
-export type FireTgClient = {
-  login: (params: LoginParams) => Promise<{ session: string }>;
-  getMe: () => Promise<Account>;
-  sendMessage: (to: string, text: string) => Promise<SentMessage>;
-  listFolders: () => Promise<FolderSummary[]>;
-  listDialogs: (options: { limit: number; folder?: number }) => Promise<DialogSummary[]>;
-  listMessages: (options: {
-    chat: string;
-    limit: number;
-    search?: string;
-  }) => Promise<MessageSummary[]>;
-  disconnect?: () => Promise<void>;
-};
-
-export type CreateTelegramClient = (config: TelegramConfig) => Promise<FireTgClient>;
 type TeleprotoDialog = Awaited<ReturnType<TelegramClient["getDialogs"]>>[number];
 
 export type FilterableDialogSummary = DialogSummary & {
@@ -95,77 +26,27 @@ export type DialogSource = {
   ) => Promise<DialogSummary[]>;
 };
 
-export async function createTeleprotoClient(
-  config: TelegramConfig,
-): Promise<FireTgClient> {
-  const client = new TelegramClient(
-    new StringSession(config.session),
-    config.apiId,
-    config.apiHash,
-    {
-      baseLogger: new Logger(LogLevel.NONE),
-      connectionRetries: 5,
-      autoReconnect: false,
-      reconnectRetries: 0,
-    },
-  );
-
-  if (config.session) {
-    await client.connect();
-  }
-
-  const dialogSource = createTeleprotoDialogSource(client);
-
+export function createTeleprotoDialogSource(client: TelegramClient): DialogSource {
   return {
-    async login(params) {
-      if (params.mode === "qr") {
-        await client.connect();
-        await client.signInUserWithQrCode(
-          { apiId: config.apiId, apiHash: config.apiHash },
-          {
-            qrCode: params.qrCode,
-            password: params.password,
-            onError: (error) => {
-              throw error;
-            },
-          },
-        );
-      } else {
-        await client.start({
-          phoneNumber: async () => params.phoneNumber,
-          phoneCode: params.phoneCode,
-          password: params.password,
-          onError: (error) => {
-            throw error;
-          },
-        });
-      }
+    async getDialogFilters() {
+      const response = await client.invoke(new Api.messages.GetDialogFilters());
+      return response.filters;
+    },
+    async getDialogSummaries(options) {
+      return (await client.getDialogs(options)).map(serializeDialog);
+    },
+    async getFilterableDialogSummaries() {
+      return (await client.getDialogs({})).map(toFilterableDialogSummary);
+    },
+    async getPeerDialogSummaries(peers) {
+      if (peers.length === 0) return [];
 
-      return { session: (client.session as StringSession).save() };
-    },
-    async getMe() {
-      return serializeUser(await client.getMe());
-    },
-    async sendMessage(to, text) {
-      return serializeSentMessage(
-        await client.sendMessage(to, { message: text, parseMode: undefined }),
+      const response = await client.invoke(
+        new Api.messages.GetPeerDialogs({
+          peers: peers.map((peer) => new Api.InputDialogPeer({ peer })),
+        }),
       );
-    },
-    async listFolders() {
-      return (await dialogSource.getDialogFilters()).map(serializeFolder);
-    },
-    async listDialogs(options) {
-      return listDialogSummaries(dialogSource, options);
-    },
-    async listMessages(options) {
-      const messages = await client.getMessages(options.chat, {
-        limit: options.limit,
-        search: options.search,
-      });
-      return messages.map(serializeMessage);
-    },
-    async disconnect() {
-      await client.destroy();
+      return peerDialogsToSummaries(response);
     },
   };
 }
@@ -191,13 +72,7 @@ export async function listDialogSummaries(
 
   const explicitPeers = explicitFilterPeers(filter);
   if (explicitPeers) {
-    try {
-      return await source.getPeerDialogSummaries(
-        explicitPeers.slice(0, options.limit),
-      );
-    } catch {
-      return listDialogSummariesByScan(source, filter, options.limit);
-    }
+    return source.getPeerDialogSummaries(explicitPeers.slice(0, options.limit));
   }
 
   return listDialogSummariesByScan(source, filter, options.limit);
@@ -213,31 +88,6 @@ async function listDialogSummariesByScan(
     .filter((dialog) => matchesDialogFilter(dialog, filter))
     .slice(0, limit)
     .map(cleanDialogSummary);
-}
-
-function createTeleprotoDialogSource(client: TelegramClient): DialogSource {
-  return {
-    async getDialogFilters() {
-      const response = await client.invoke(new Api.messages.GetDialogFilters());
-      return response.filters;
-    },
-    async getDialogSummaries(options) {
-      return (await client.getDialogs(options)).map(serializeDialog);
-    },
-    async getFilterableDialogSummaries() {
-      return (await client.getDialogs({})).map(toFilterableDialogSummary);
-    },
-    async getPeerDialogSummaries(peers) {
-      if (peers.length === 0) return [];
-
-      const response = await client.invoke(
-        new Api.messages.GetPeerDialogs({
-          peers: peers.map((peer) => new Api.InputDialogPeer({ peer })),
-        }),
-      );
-      return peerDialogsToSummaries(response);
-    },
-  };
 }
 
 function findDialogFilter(
@@ -334,6 +184,18 @@ function entitiesByPeer(
   return entities;
 }
 
+function serializeDialog(dialog: TeleprotoDialog): DialogSummary {
+  return cleanDialogSummary({
+    id: dialog.id?.toString(),
+    title: dialog.title,
+    folderId: dialog.folderId,
+    unreadCount: dialog.unreadCount,
+    isUser: dialog.isUser,
+    isGroup: dialog.isGroup,
+    isChannel: dialog.isChannel,
+  });
+}
+
 function serializePeerDialog(
   dialog: Api.Dialog,
   entities: Map<string, Entity>,
@@ -349,6 +211,22 @@ function serializePeerDialog(
     isGroup: isGroupEntity(entity),
     isChannel: entity instanceof Api.Channel,
   });
+}
+
+function cleanDialogSummary(summary: DialogSummary): DialogSummary {
+  const result: DialogSummary = {};
+
+  if (summary.id !== undefined) result.id = summary.id;
+  if (summary.title !== undefined) result.title = summary.title;
+  if (summary.folderId !== undefined) result.folderId = summary.folderId;
+  if (summary.unreadCount !== undefined) {
+    result.unreadCount = summary.unreadCount;
+  }
+  if (summary.isUser !== undefined) result.isUser = summary.isUser;
+  if (summary.isGroup !== undefined) result.isGroup = summary.isGroup;
+  if (summary.isChannel !== undefined) result.isChannel = summary.isChannel;
+
+  return result;
 }
 
 function isGroupEntity(entity: Entity | undefined): boolean {
@@ -455,79 +333,4 @@ function inputPeerKey(inputPeer: Api.TypeInputPeer): string | undefined {
 
 function isPeerFolderId(folderId: number): boolean {
   return folderId === 0 || folderId === 1;
-}
-
-function serializeDialog(dialog: TeleprotoDialog): DialogSummary {
-  return cleanDialogSummary({
-    id: dialog.id?.toString(),
-    title: dialog.title,
-    folderId: dialog.folderId,
-    unreadCount: dialog.unreadCount,
-    isUser: dialog.isUser,
-    isGroup: dialog.isGroup,
-    isChannel: dialog.isChannel,
-  });
-}
-
-function cleanDialogSummary(summary: DialogSummary): DialogSummary {
-  const result: DialogSummary = {};
-
-  if (summary.id !== undefined) result.id = summary.id;
-  if (summary.title !== undefined) result.title = summary.title;
-  if (summary.folderId !== undefined) result.folderId = summary.folderId;
-  if (summary.unreadCount !== undefined) {
-    result.unreadCount = summary.unreadCount;
-  }
-  if (summary.isUser !== undefined) result.isUser = summary.isUser;
-  if (summary.isGroup !== undefined) result.isGroup = summary.isGroup;
-  if (summary.isChannel !== undefined) result.isChannel = summary.isChannel;
-
-  return result;
-}
-
-function serializeUser(user: Api.User): Account {
-  return {
-    id: user.id?.toString(),
-    username: user.username,
-    firstName: user.firstName,
-    lastName: user.lastName,
-    phone: user.phone,
-  };
-}
-
-function serializeSentMessage(message: Api.Message): SentMessage {
-  return {
-    id: Number(message.id),
-    date: message.date,
-    text: message.message,
-  };
-}
-
-function serializeFolder(folder: Api.TypeDialogFilter): FolderSummary {
-  if (folder instanceof Api.DialogFilterDefault) {
-    return { title: "All chats", type: folder.className };
-  }
-
-  return {
-    id: folder.id,
-    title: textWithEntitiesToString(folder.title),
-    type: folder.className,
-    emoticon: folder.emoticon,
-    color: folder.color,
-  };
-}
-
-function serializeMessage(message: Api.Message): MessageSummary {
-  return {
-    id: Number(message.id),
-    date: message.date,
-    text: message.message,
-    senderId: message.fromId?.toString(),
-    chatId: message.peerId?.toString(),
-    outgoing: message.out,
-  };
-}
-
-function textWithEntitiesToString(value: Api.TypeTextWithEntities): string {
-  return "text" in value ? value.text : "";
 }
