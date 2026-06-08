@@ -113,7 +113,7 @@ Failed responses:
 
 One-time GitHub setup:
 
-- Add repository secret `NPM_TOKEN` with npm publish permissions.
+- Configure npm Trusted Publishing for `Mergemat/firetg` and `.github/workflows/publish.yml`.
 
 Publish a new npm version:
 
@@ -123,4 +123,4 @@ git push origin main
 git push origin v0.1.1
 ```
 
-`bun run release patch` runs tests, bumps `package.json`, creates a conventional release commit, and creates a matching tag. Pushing that tag starts the npm publish workflow. Use the tag printed by the release command instead of `v0.1.1` when publishing later versions.
+`bun run release patch` runs tests, bumps `package.json`, creates a conventional release commit, and creates a matching tag. Pushing that tag starts the npm publish workflow through npm Trusted Publishing. Use the tag printed by the release command instead of `v0.1.1` when publishing later versions.
