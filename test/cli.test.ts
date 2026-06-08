@@ -30,6 +30,7 @@ function createHarness() {
 function fakeTelegram(overrides: Partial<FireTgClient> = {}): FireTgClient {
   return {
     login: async () => ({ session: "" }),
+    logout: async () => {},
     getMe: async () => ({}),
     sendMessage: async () => ({}),
     listFolders: async () => [],
@@ -445,6 +446,7 @@ describe("firetg cli", () => {
     const exitCode = await runCli(["auth", "logout"], {
       env,
       io: harness.io,
+      createTelegram: async () => fakeTelegram(),
     });
 
     expect(exitCode).toBe(0);
@@ -452,6 +454,32 @@ describe("firetg cli", () => {
       ok: true,
       data: { sessionPath },
     });
+    await expect(readFile(sessionPath, "utf8")).rejects.toThrow();
+    expect(harness.stderr.join("")).toBe("");
+  });
+
+  test("auth logout revokes the stored Telegram session", async () => {
+    const harness = createHarness();
+    const { env, sessionPath } = await createStoredAuthEnv("stored-session");
+    const sessions: Array<string | undefined> = [];
+    let logoutCalls = 0;
+
+    const exitCode = await runCli(["auth", "logout"], {
+      env,
+      io: harness.io,
+      createTelegram: async (config) => {
+        sessions.push(config.session);
+        return fakeTelegram({
+          logout: async () => {
+            logoutCalls += 1;
+          },
+        });
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(sessions).toEqual(["stored-session"]);
+    expect(logoutCalls).toBe(1);
     await expect(readFile(sessionPath, "utf8")).rejects.toThrow();
     expect(harness.stderr.join("")).toBe("");
   });

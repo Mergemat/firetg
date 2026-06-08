@@ -56,6 +56,7 @@ export type LoginParams =
 
 export type FireTgClient = {
   login: (params: LoginParams) => Promise<{ session: string }>;
+  logout: () => Promise<void>;
   getMe: () => Promise<Account>;
   sendMessage: (to: string, text: string) => Promise<SentMessage>;
   listFolders: () => Promise<FolderSummary[]>;
