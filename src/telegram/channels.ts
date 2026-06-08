@@ -59,14 +59,15 @@ async function resolveChannelEntity(
 async function getPinnedMessage(
   client: TelegramClient,
   channel: Api.Channel,
-  pinnedMsgId?: number,
+  pinnedMsgId?: number | null,
 ): Promise<MessageSummary | undefined> {
-  if (pinnedMsgId === undefined) return undefined;
+  const id = normalizePinnedMessageId(pinnedMsgId);
+  if (id === undefined) return undefined;
 
   const response = await client.invoke(
     new Api.channels.GetMessages({
       channel,
-      id: [new Api.InputMessageID({ id: pinnedMsgId })],
+      id: [new Api.InputMessageID({ id })],
     }),
   );
   const message = getFirstMessage(response);
@@ -87,6 +88,15 @@ function getFirstMessage(
   }
 
   return undefined;
+}
+
+function normalizePinnedMessageId(
+  pinnedMsgId?: number | null,
+): number | undefined {
+  if (pinnedMsgId === undefined || pinnedMsgId === null) return undefined;
+
+  const id = Number(pinnedMsgId);
+  return Number.isInteger(id) && id > 0 ? id : undefined;
 }
 
 function serializeChannelDetails(

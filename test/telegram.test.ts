@@ -177,6 +177,51 @@ describe("telegram message sending", () => {
 });
 
 describe("telegram channel details", () => {
+  test("channel view omits pinned message when Telegram returns null pinned id", async () => {
+    const channel = new Api.Channel({
+      id: bigInt(100),
+      accessHash: bigInt(10),
+      title: "FireTG",
+      photo: new Api.ChatPhotoEmpty(),
+      date: 1_800_000_000,
+      broadcast: true,
+    });
+
+    const client = {
+      getEntity: async () => channel,
+      invoke: async (request: Api.AnyRequest) => {
+        expect(request).toBeInstanceOf(Api.channels.GetFullChannel);
+        return new Api.messages.ChatFull({
+          fullChat: new Api.ChannelFull({
+            id: channel.id,
+            about: "No pinned message",
+            readInboxMaxId: 0,
+            readOutboxMaxId: 0,
+            unreadCount: 0,
+            chatPhoto: new Api.PhotoEmpty({ id: bigInt(1) }),
+            notifySettings: new Api.PeerNotifySettings({}),
+            botInfo: [],
+            pinnedMsgId: null as never,
+            pts: 1,
+          }),
+          chats: [channel],
+          users: [],
+        });
+      },
+      getMessages: async () => {
+        throw new Error("missing pinned message should not fetch messages");
+      },
+    };
+
+    await expect(
+      getChannelDetails(client as never, "firetg"),
+    ).resolves.toEqual({
+      id: "100",
+      title: "FireTG",
+      description: "No pinned message",
+    });
+  });
+
   test("known numeric channel ids resolve through dialogs", async () => {
     const channel = new Api.Channel({
       id: bigInt(100),
