@@ -5,6 +5,18 @@ import type { CommandSpec } from "./types";
 export const sendCommand: CommandSpec = {
   id: "messages.send",
   usage: "messages send --to <peer> --text <message>",
+  help: {
+    summary: "Send a message",
+    description:
+      "Sends a text message to a Telegram peer and returns the sent message as JSON.",
+    options: [
+      "--to <peer>          Required destination chat, username, id, or peer alias",
+      "--text <message>     Required message text",
+      "--help               Show this help",
+    ],
+    examples: ['firetg messages send --to me --text "hello"'],
+    aliases: ["firetg send"],
+  },
   matches: (parsed) =>
     matchesScopedCommand(parsed, "messages", "send") ||
     parsed.command === "send",

@@ -36,6 +36,15 @@ By default, credentials are stored in `~/.config/firetg/config.json` and the ses
 
 ## Commands
 
+Help is available globally, per module, and per command:
+
+```bash
+bun run index.ts --help
+bun run index.ts auth
+bun run index.ts messages --help
+bun run index.ts messages list --help
+```
+
 ```bash
 bun run index.ts auth login
 bun run index.ts auth login --phone
