@@ -1,4 +1,5 @@
 export { createTeleprotoClient } from "./client";
+export { getChannelDetails } from "./channels";
 export {
   createTeleprotoDialogSource,
   listDialogSummaries,
@@ -7,6 +8,7 @@ export {
 } from "./dialogs";
 export type {
   Account,
+  ChannelDetails,
   CreateTelegramClient,
   DialogSummary,
   FireTgClient,
