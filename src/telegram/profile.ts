@@ -1,5 +1,10 @@
 import { Api, type TelegramClient } from "teleproto";
 import type { Account, Profile } from "./types";
+import {
+  getKnownUserEntityById,
+  isUserId,
+  normalizeUser,
+} from "./users";
 
 export async function getCurrentAccount(
   client: TelegramClient,
@@ -9,12 +14,15 @@ export async function getCurrentAccount(
 
 export async function getPublicProfile(
   client: TelegramClient,
-  username: string,
+  user: string,
 ): Promise<Profile> {
-  const entity = await client.getEntity(normalizeUsername(username));
+  const normalized = normalizeUser(user);
+  const entity = isUserId(normalized)
+    ? await getKnownUserEntityById(client, normalized)
+    : await client.getEntity(normalized);
 
   if (!(entity instanceof Api.User)) {
-    throw new Error(`Username ${username} does not resolve to a user profile`);
+    throw new Error(`${user} does not resolve to a user profile`);
   }
 
   const full = await client.invoke(
@@ -22,10 +30,6 @@ export async function getPublicProfile(
   );
 
   return serializeProfile(entity, full.fullUser);
-}
-
-function normalizeUsername(username: string): string {
-  return username.trim().replace(/^@/, "");
 }
 
 function serializeAccount(user: Api.User): Account {

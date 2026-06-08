@@ -1,14 +1,27 @@
 import { Api, type TelegramClient } from "teleproto";
 import type { MessageSummary, SentMessage } from "./types";
+import { getKnownUserEntityById, isUserId, normalizeUser } from "./users";
 
 export async function sendTelegramMessage(
   client: TelegramClient,
   to: string,
   text: string,
 ): Promise<SentMessage> {
+  const entity = await resolveMessageRecipient(client, to);
+
   return serializeSentMessage(
-    await client.sendMessage(to, { message: text, parseMode: undefined }),
+    await client.sendMessage(entity, { message: text, parseMode: undefined }),
   );
+}
+
+async function resolveMessageRecipient(
+  client: TelegramClient,
+  to: string,
+): Promise<string | Api.User> {
+  const normalized = normalizeUser(to);
+  if (!isUserId(normalized)) return to;
+
+  return getKnownUserEntityById(client, normalized);
 }
 
 export async function listTelegramMessages(
