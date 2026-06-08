@@ -25,6 +25,7 @@ GETTING STARTED
   firetg auth login
   firetg profiles me
   firetg messages list --chat me --limit 20
+  firetg messages pinned --chat telegram --limit 20
 
 OUTPUT
   JSON is written to stdout.

@@ -37,7 +37,22 @@ export async function listTelegramMessages(
     search: options.search,
   });
 
-  return messages.map(serializeMessage);
+  return serializeMessages(messages);
+}
+
+export async function listTelegramPinnedMessages(
+  client: TelegramClient,
+  options: {
+    chat: string;
+    limit: number;
+  },
+): Promise<MessageSummary[]> {
+  const messages = await client.getMessages(options.chat, {
+    limit: options.limit,
+    filter: new Api.InputMessagesFilterPinned(),
+  });
+
+  return serializeMessages(messages);
 }
 
 function serializeSentMessage(message: Api.Message): SentMessage {
@@ -53,8 +68,27 @@ function serializeMessage(message: Api.Message): MessageSummary {
     id: Number(message.id),
     date: message.date,
     text: message.message,
-    senderId: message.fromId?.toString(),
-    chatId: message.peerId?.toString(),
+    senderId: peerIdToString(message.fromId),
+    chatId: peerIdToString(message.peerId),
     outgoing: message.out,
   };
+}
+
+function serializeMessages(messages: Api.Message[]): MessageSummary[] {
+  return [...messages].sort(compareMessagesNewestFirst).map(serializeMessage);
+}
+
+function compareMessagesNewestFirst(left: Api.Message, right: Api.Message): number {
+  const leftDate = left.date ?? 0;
+  const rightDate = right.date ?? 0;
+  if (leftDate !== rightDate) return rightDate - leftDate;
+
+  return Number(right.id ?? 0) - Number(left.id ?? 0);
+}
+
+function peerIdToString(peer?: Api.TypePeer): string | undefined {
+  if (peer instanceof Api.PeerUser) return peer.userId.toString();
+  if (peer instanceof Api.PeerChat) return peer.chatId.toString();
+  if (peer instanceof Api.PeerChannel) return peer.channelId.toString();
+  return undefined;
 }

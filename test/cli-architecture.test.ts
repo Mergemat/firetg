@@ -28,7 +28,7 @@ describe("cli architecture", () => {
       {
         scope: "messages",
         summary: "Read and send Telegram messages",
-        commands: ["messages.send", "messages.list"],
+        commands: ["messages.send", "messages.list", "messages.pinned"],
       },
       {
         scope: "dialogs",
@@ -54,6 +54,7 @@ describe("cli architecture", () => {
       "channels.view",
       "messages.send",
       "messages.list",
+      "messages.pinned",
       "dialogs.list",
       "folders.list",
     ]);

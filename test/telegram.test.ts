@@ -8,7 +8,11 @@ import {
   type DialogSource,
 } from "../src/telegram/dialogs";
 import { getChannelDetails } from "../src/telegram/channels";
-import { sendTelegramMessage } from "../src/telegram/messages";
+import {
+  listTelegramMessages,
+  listTelegramPinnedMessages,
+  sendTelegramMessage,
+} from "../src/telegram/messages";
 
 const title = new Api.TextWithEntities({ text: "Managers", entities: [] });
 
@@ -173,6 +177,89 @@ describe("telegram message sending", () => {
       text: "hello",
     });
     expect(sentEntity).toBe(user);
+  });
+});
+
+describe("telegram message listing", () => {
+  test("message history is newest first", async () => {
+    const client = {
+      getMessages: async (
+        chat: string,
+        params: { limit: number; search?: string },
+      ) => {
+        expect(chat).toBe("firetg");
+        expect(params).toEqual({ limit: 3, search: undefined });
+        return [
+          new Api.Message({
+            id: 1,
+            date: 1_800_000_001,
+            message: "older",
+          }),
+          new Api.Message({
+            id: 3,
+            date: 1_800_000_003,
+            message: "newer",
+            peerId: new Api.PeerChannel({ channelId: bigInt(100) }),
+          }),
+          new Api.Message({
+            id: 2,
+            date: 1_800_000_002,
+            message: "middle",
+          }),
+        ];
+      },
+    };
+
+    await expect(
+      listTelegramMessages(client as never, {
+        chat: "firetg",
+        limit: 3,
+      }),
+    ).resolves.toEqual([
+      {
+        id: 3,
+        date: 1_800_000_003,
+        text: "newer",
+        chatId: "100",
+      },
+      { id: 2, date: 1_800_000_002, text: "middle" },
+      { id: 1, date: 1_800_000_001, text: "older" },
+    ]);
+  });
+
+  test("pinned messages use the pinned filter and are newest first", async () => {
+    const client = {
+      getMessages: async (
+        chat: string,
+        params: { limit: number; filter: Api.InputMessagesFilterPinned },
+      ) => {
+        expect(chat).toBe("firetg");
+        expect(params.limit).toBe(2);
+        expect(params.filter).toBeInstanceOf(Api.InputMessagesFilterPinned);
+        return [
+          new Api.Message({
+            id: 10,
+            date: 1_800_000_010,
+            message: "first pin",
+          }),
+          new Api.Message({
+            id: 12,
+            date: 1_800_000_012,
+            message: "latest pin",
+          }),
+        ];
+      },
+    };
+
+    await expect(
+      listTelegramPinnedMessages(client as never, {
+        chat: "firetg",
+        limit: 2,
+      }),
+    ).resolves.toEqual([
+      { id: 12, date: 1_800_000_012, text: "latest pin" },
+      { id: 10, date: 1_800_000_010, text: "first pin" },
+    ]);
   });
 });
 

@@ -91,6 +91,10 @@ export type FireTgClient = {
     limit: number;
     search?: string;
   }) => Promise<MessageSummary[]>;
+  listPinnedMessages: (options: {
+    chat: string;
+    limit: number;
+  }) => Promise<MessageSummary[]>;
   disconnect?: () => Promise<void>;
 };
 

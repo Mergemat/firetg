@@ -3,7 +3,7 @@ import { channelViewCommand } from "./channels";
 import { dialogsListCommand } from "./dialogs";
 import { foldersListCommand } from "./folders";
 import { meCommand, profileViewCommand } from "./me";
-import { messagesListCommand } from "./messages";
+import { messagesListCommand, messagesPinnedCommand } from "./messages";
 import { sendCommand } from "./send";
 import type { CommandModule, CommandSpec } from "./types";
 
@@ -34,7 +34,7 @@ export const commandModules: CommandModule[] = [
     summary: "Read and send Telegram messages",
     description:
       "Send text messages and read history from a specific Telegram chat.",
-    commands: [sendCommand, messagesListCommand],
+    commands: [sendCommand, messagesListCommand, messagesPinnedCommand],
   },
   {
     scope: "dialogs",
