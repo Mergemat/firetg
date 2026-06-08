@@ -5,6 +5,14 @@ import type { CommandSpec } from "./types";
 export const foldersListCommand: CommandSpec = {
   id: "folders.list",
   usage: "folders list",
+  help: {
+    summary: "List Telegram folders",
+    description:
+      "Returns configured Telegram dialog filters/folders as JSON.",
+    options: ["--help    Show this help"],
+    examples: ["firetg folders list"],
+    aliases: ["firetg folders:list"],
+  },
   matches: (parsed) =>
     matchesScopedCommand(parsed, "folders", "list") ||
     parsed.command === "folders:list",

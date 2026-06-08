@@ -6,14 +6,25 @@ export type CommandInput = {
   context: CliContext;
 };
 
+export type CommandHelp = {
+  summary: string;
+  description?: string;
+  options?: string[];
+  examples?: string[];
+  aliases?: string[];
+};
+
 export type CommandSpec = {
   id: string;
   usage: string;
+  help: CommandHelp;
   matches: (parsed: ParsedArgs) => boolean;
   run: (input: CommandInput) => Promise<number>;
 };
 
 export type CommandModule = {
   scope: string;
+  summary: string;
+  description?: string;
   commands: CommandSpec[];
 };

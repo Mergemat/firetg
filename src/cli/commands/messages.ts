@@ -6,6 +6,22 @@ import type { CommandSpec } from "./types";
 export const messagesListCommand: CommandSpec = {
   id: "messages.list",
   usage: "messages list --chat <peer> [--limit <n>] [--search <query>]",
+  help: {
+    summary: "List messages from a chat",
+    description:
+      "Reads recent message history for one Telegram chat or peer.",
+    options: [
+      "--chat <peer>      Required chat, username, id, or peer alias",
+      "--limit <n>        Maximum messages to return; default 20",
+      "--search <query>   Search query within the chat history",
+      "--help             Show this help",
+    ],
+    examples: [
+      "firetg messages list --chat me --limit 20",
+      "firetg messages list --chat me --search deploy --limit 10",
+    ],
+    aliases: ["firetg messages:list"],
+  },
   matches: (parsed) =>
     matchesScopedCommand(parsed, "messages", "list") ||
     parsed.command === "messages:list",
