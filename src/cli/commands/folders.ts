@@ -9,9 +9,13 @@ export const foldersListCommand: CommandSpec = {
     summary: "List Telegram folders",
     description:
       "Returns configured Telegram dialog filters/folders as JSON.",
-    options: ["--help    Show this help"],
-    examples: ["firetg folders list"],
-    aliases: ["firetg folders:list"],
+    examples: [
+      {
+        command: "firetg folders list",
+        summary: "List configured folders",
+      },
+    ],
+    aliases: ["folders:list"],
   },
   matches: (parsed) =>
     matchesScopedCommand(parsed, "folders", "list") ||

@@ -11,16 +11,35 @@ export const messagesListCommand: CommandSpec = {
     description:
       "Reads recent message history for one Telegram chat or peer.",
     options: [
-      "--chat <peer>      Required chat, username, id, or peer alias",
-      "--limit <n>        Maximum messages to return; default 20",
-      "--search <query>   Search query within the chat history",
-      "--help             Show this help",
+      {
+        name: "--chat",
+        value: "<peer>",
+        summary: "Chat, username, id, or peer alias",
+        required: true,
+      },
+      {
+        name: "--limit",
+        value: "<n>",
+        summary: "Maximum messages to return",
+        defaultValue: "20",
+      },
+      {
+        name: "--search",
+        value: "<query>",
+        summary: "Search query within the chat history",
+      },
     ],
     examples: [
-      "firetg messages list --chat me --limit 20",
-      "firetg messages list --chat me --search deploy --limit 10",
+      {
+        command: "firetg messages list --chat me --limit 20",
+        summary: "Read the latest saved-message history",
+      },
+      {
+        command: "firetg messages list --chat me --search deploy --limit 10",
+        summary: "Search within one chat",
+      },
     ],
-    aliases: ["firetg messages:list"],
+    aliases: ["messages:list"],
   },
   matches: (parsed) =>
     matchesScopedCommand(parsed, "messages", "list") ||
