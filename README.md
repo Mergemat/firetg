@@ -4,6 +4,26 @@ Agent-ready Telegram MTProto CLI built on Teleproto and Bun.
 
 ## Install
 
+Run without installing:
+
+```bash
+bunx firetg --help
+```
+
+Install globally:
+
+```bash
+bun install -g firetg
+```
+
+Then run:
+
+```bash
+firetg --help
+```
+
+For local development:
+
 ```bash
 bun install
 ```
@@ -13,7 +33,7 @@ bun install
 Create an app at https://my.telegram.org/apps, then log in once:
 
 ```bash
-bun run index.ts auth login
+bunx firetg auth login
 ```
 
 The CLI prompts for API ID/hash, prints a QR code to stderr, and stores the resulting session after you scan it in Telegram.
@@ -21,7 +41,7 @@ The CLI prompts for API ID/hash, prints a QR code to stderr, and stores the resu
 Phone-code login is available as a fallback:
 
 ```bash
-bun run index.ts auth login --phone
+bunx firetg auth login --phone
 ```
 
 Phone login prompts for:
@@ -39,23 +59,25 @@ By default, credentials are stored in `~/.config/firetg/config.json` and the ses
 Help is available globally, per module, and per command:
 
 ```bash
-bun run index.ts --help
-bun run index.ts auth
-bun run index.ts messages --help
-bun run index.ts messages list --help
+firetg --help
+firetg auth
+firetg messages --help
+firetg messages list --help
 ```
 
 ```bash
-bun run index.ts auth login
-bun run index.ts auth login --phone
-bun run index.ts auth logout
-bun run index.ts profiles me
-bun run index.ts profiles view --username telegram
-bun run index.ts messages send --to me --text "hello"
-bun run index.ts folders list
-bun run index.ts dialogs list --folder 1 --limit 20
-bun run index.ts messages list --chat me --limit 20
-bun run index.ts messages list --chat me --search deploy --limit 10
+firetg auth login
+firetg auth login --phone
+firetg auth logout
+firetg profiles me
+firetg profiles view --username telegram
+firetg profiles view --id 116040563
+firetg messages send --username telegram --text "hello"
+firetg messages send --id 116040563 --text "hello"
+firetg folders list
+firetg dialogs list --folder 1 --limit 20
+firetg messages list --chat me --limit 20
+firetg messages list --chat me --search deploy --limit 10
 ```
 
 Telegram folder notes:
@@ -86,3 +108,19 @@ Failed responses:
 ```json
 {"ok":false,"error":{"code":"CONFIG_ERROR","message":"Missing config file at /path/to/config.json"}}
 ```
+
+## Release
+
+One-time GitHub setup:
+
+- Add repository secret `NPM_TOKEN` with npm publish permissions.
+
+Publish a new npm version:
+
+```bash
+bun run release patch
+git push origin main
+git push origin v0.1.1
+```
+
+`bun run release patch` runs tests, bumps `package.json`, creates a conventional release commit, and creates a matching tag. Pushing that tag starts the npm publish workflow. Use the tag printed by the release command instead of `v0.1.1` when publishing later versions.
