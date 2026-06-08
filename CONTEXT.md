@@ -33,7 +33,8 @@ Represents a Telegram broadcast channel.
 Represents Telegram message actions for a peer.
 
 - `messages send` sends a message to a peer.
-- `messages list` reads message history for a chat.
+- `messages list` reads message history for a chat, newest first.
+- `messages pinned` reads pinned messages for a chat, newest first.
 - Folders organize dialogs, not message streams.
 
 ### Dialog
