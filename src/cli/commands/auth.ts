@@ -1,4 +1,4 @@
-import { createTelegramConfig } from "../../config";
+import { createTelegramConfig, readTelegramConfig } from "../../config";
 import {
   deleteSession,
   readApiCredentials,
@@ -72,7 +72,20 @@ async function runAuthLogin(
 }
 
 async function runAuthLogout(context: CliContext): Promise<number> {
+  let telegram: FireTgClient | undefined;
+
   try {
+    const configResult = await readTelegramConfig(context.env, {
+      requireSession: false,
+    });
+
+    if (configResult.config?.session) {
+      telegram = await (context.createTelegram ?? createTeleprotoClient)(
+        configResult.config,
+      );
+      await telegram.logout();
+    }
+
     const sessionPath = await deleteSession(context.env);
 
     writeJson(context, true, {
@@ -80,8 +93,10 @@ async function runAuthLogout(context: CliContext): Promise<number> {
     });
     return 0;
   } catch (error) {
-    writeError(context, "CONFIG_ERROR", errorMessage(error));
-    return 1;
+    writeError(context, "TELEGRAM_ERROR", errorMessage(error));
+    return 2;
+  } finally {
+    await telegram?.disconnect?.();
   }
 }
 
