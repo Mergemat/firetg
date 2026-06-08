@@ -3,6 +3,7 @@ import { Logger, LogLevel } from "teleproto/extensions/Logger";
 import { StringSession } from "teleproto/sessions";
 import type { TelegramConfig } from "../config";
 import { loginTelegramAccount } from "./auth";
+import { getChannelDetails } from "./channels";
 import {
   createTeleprotoDialogSource,
   listDialogSummaries,
@@ -42,6 +43,7 @@ export async function createTeleprotoClient(
     },
     getMe: () => getCurrentAccount(client),
     getProfile: (username) => getPublicProfile(client, username),
+    getChannel: (channel) => getChannelDetails(client, channel),
     sendMessage: (to, text) => sendTelegramMessage(client, to, text),
     listFolders: async () =>
       listTelegramFolders(await dialogSource.getDialogFilters()),

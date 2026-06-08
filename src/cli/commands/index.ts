@@ -1,4 +1,5 @@
 import { authLoginCommand, authLogoutCommand } from "./auth";
+import { channelViewCommand } from "./channels";
 import { dialogsListCommand } from "./dialogs";
 import { foldersListCommand } from "./folders";
 import { meCommand, profileViewCommand } from "./me";
@@ -20,6 +21,13 @@ export const commandModules: CommandModule[] = [
     description:
       "Inspect the stored session account or a public Telegram user profile.",
     commands: [meCommand, profileViewCommand],
+  },
+  {
+    scope: "channels",
+    summary: "Telegram channel details",
+    description:
+      "Inspect Telegram channel metadata, description, and pinned message.",
+    commands: [channelViewCommand],
   },
   {
     scope: "messages",

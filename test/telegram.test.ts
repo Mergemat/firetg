@@ -7,6 +7,7 @@ import {
   type DialogSummary,
   type DialogSource,
 } from "../src/telegram/dialogs";
+import { getChannelDetails } from "../src/telegram/channels";
 import { sendTelegramMessage } from "../src/telegram/messages";
 
 const title = new Api.TextWithEntities({ text: "Managers", entities: [] });
@@ -172,5 +173,125 @@ describe("telegram message sending", () => {
       text: "hello",
     });
     expect(sentEntity).toBe(user);
+  });
+});
+
+describe("telegram channel details", () => {
+  test("known numeric channel ids resolve through dialogs", async () => {
+    const channel = new Api.Channel({
+      id: bigInt(100),
+      accessHash: bigInt(10),
+      title: "FireTG",
+      photo: new Api.ChatPhotoEmpty(),
+      date: 1_800_000_000,
+      broadcast: true,
+    });
+    let requestedChannel: unknown;
+
+    const client = {
+      getEntity: async () => {
+        throw new Error("direct entity lookup failed");
+      },
+      getDialogs: async () => [{ entity: channel }],
+      invoke: async (request: Api.channels.GetFullChannel) => {
+        requestedChannel = request.channel;
+        return new Api.messages.ChatFull({
+          fullChat: new Api.ChannelFull({
+            id: channel.id,
+            about: "Known channel",
+            readInboxMaxId: 0,
+            readOutboxMaxId: 0,
+            unreadCount: 0,
+            chatPhoto: new Api.PhotoEmpty({ id: bigInt(1) }),
+            notifySettings: new Api.PeerNotifySettings({}),
+            botInfo: [],
+            pts: 1,
+          }),
+          chats: [channel],
+          users: [],
+        });
+      },
+      getMessages: async () => {
+        throw new Error("channel has no pinned message");
+      },
+    };
+
+    await expect(
+      getChannelDetails(client as never, "100"),
+    ).resolves.toEqual({
+      id: "100",
+      title: "FireTG",
+      description: "Known channel",
+    });
+    expect(requestedChannel).toBe(channel);
+  });
+
+  test("channel view includes description and pinned message", async () => {
+    const channel = new Api.Channel({
+      id: bigInt(100),
+      accessHash: bigInt(10),
+      title: "FireTG",
+      username: "firetg",
+      photo: new Api.ChatPhotoEmpty(),
+      date: 1_800_000_000,
+      broadcast: true,
+      verified: true,
+      participantsCount: 123,
+    });
+    const pinned = new Api.Message({
+      id: 7,
+      date: 1_800_000_003,
+      message: "Start here",
+      peerId: new Api.PeerChannel({ channelId: channel.id }),
+    });
+
+    const client = {
+      getEntity: async (entity: string) => {
+        expect(entity).toBe("firetg");
+        return channel;
+      },
+      invoke: async (request: Api.AnyRequest) => {
+        expect(request).toBeInstanceOf(Api.channels.GetFullChannel);
+        return new Api.messages.ChatFull({
+          fullChat: new Api.ChannelFull({
+            id: channel.id,
+            about: "Agent-ready Telegram CLI",
+            participantsCount: 123,
+            readInboxMaxId: 0,
+            readOutboxMaxId: 0,
+            unreadCount: 0,
+            chatPhoto: new Api.PhotoEmpty({ id: bigInt(1) }),
+            notifySettings: new Api.PeerNotifySettings({}),
+            botInfo: [],
+            pinnedMsgId: 7,
+            pts: 1,
+          }),
+          chats: [channel],
+          users: [],
+        });
+      },
+      getMessages: async (entity: Api.Channel, params: { ids: number }) => {
+        expect(entity).toBe(channel);
+        expect(params).toEqual({ ids: 7 });
+        return [pinned];
+      },
+    };
+
+    await expect(
+      getChannelDetails(client as never, "firetg"),
+    ).resolves.toEqual({
+      id: "100",
+      title: "FireTG",
+      username: "firetg",
+      description: "Agent-ready Telegram CLI",
+      participantsCount: 123,
+      pinnedMessage: {
+        id: 7,
+        date: 1_800_000_003,
+        text: "Start here",
+        chatId: "100",
+      },
+      verified: true,
+    });
   });
 });

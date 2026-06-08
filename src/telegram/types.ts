@@ -51,6 +51,19 @@ export type MessageSummary = {
   outgoing?: boolean;
 };
 
+export type ChannelDetails = {
+  id?: string;
+  title?: string;
+  username?: string;
+  description?: string;
+  participantsCount?: number;
+  pinnedMessage?: MessageSummary;
+  verified?: boolean;
+  restricted?: boolean;
+  scam?: boolean;
+  fake?: boolean;
+};
+
 export type LoginParams =
   | {
       mode: "phone";
@@ -69,6 +82,7 @@ export type FireTgClient = {
   logout: () => Promise<void>;
   getMe: () => Promise<Account>;
   getProfile: (user: string) => Promise<Profile>;
+  getChannel: (channel: string) => Promise<ChannelDetails>;
   sendMessage: (to: string, text: string) => Promise<SentMessage>;
   listFolders: () => Promise<FolderSummary[]>;
   listDialogs: (options: { limit: number; folder?: number }) => Promise<DialogSummary[]>;

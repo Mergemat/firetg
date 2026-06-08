@@ -20,6 +20,14 @@ Represents the currently authenticated Telegram account.
 - `profiles view --username <username>` returns a public user profile, including the Telegram bio/description when available.
 - Use Profile for account identity reads, not Auth.
 
+### Channel
+
+Represents a Telegram broadcast channel.
+
+- `channels view --username <username>` returns channel metadata.
+- Channel metadata includes the description and pinned message when Telegram exposes them.
+- Use Channel for broadcast channel details, not Dialog list entries.
+
 ### Message
 
 Represents Telegram message actions for a peer.
