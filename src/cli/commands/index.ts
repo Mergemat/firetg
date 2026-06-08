@@ -47,4 +47,10 @@ export const commandSpecs: CommandSpec[] = commandModules.flatMap(
   (module) => module.commands,
 );
 
-export type { CommandInput, CommandModule, CommandSpec } from "./types";
+export type {
+  CommandExample,
+  CommandInput,
+  CommandModule,
+  CommandOption,
+  CommandSpec,
+} from "./types";

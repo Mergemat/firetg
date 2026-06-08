@@ -6,11 +6,24 @@ export type CommandInput = {
   context: CliContext;
 };
 
+export type CommandOption = {
+  name: string;
+  value?: string;
+  summary: string;
+  required?: boolean;
+  defaultValue?: string;
+};
+
+export type CommandExample = {
+  command: string;
+  summary?: string;
+};
+
 export type CommandHelp = {
   summary: string;
   description?: string;
-  options?: string[];
-  examples?: string[];
+  options?: CommandOption[];
+  examples?: CommandExample[];
   aliases?: string[];
 };
 
