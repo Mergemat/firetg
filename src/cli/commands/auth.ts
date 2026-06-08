@@ -20,12 +20,17 @@ export const authLoginCommand: CommandSpec = {
     description:
       "Starts Telegram authorization. QR login is used by default; phone-code login is available with --phone.",
     options: [
-      "--phone    Use phone-code login instead of QR login",
-      "--help     Show this help",
+      {
+        name: "--phone",
+        summary: "Use phone-code login instead of QR login",
+      },
     ],
     examples: [
-      "firetg auth login",
-      "firetg auth login --phone",
+      { command: "firetg auth login", summary: "Log in with QR code" },
+      {
+        command: "firetg auth login --phone",
+        summary: "Log in with phone code",
+      },
     ],
   },
   matches: (parsed) =>
@@ -40,8 +45,12 @@ export const authLogoutCommand: CommandSpec = {
     summary: "Revoke and remove the stored Telegram session",
     description:
       "Logs out the stored Telegram session when possible, then deletes the local session file.",
-    options: ["--help    Show this help"],
-    examples: ["firetg auth logout"],
+    examples: [
+      {
+        command: "firetg auth logout",
+        summary: "Remove the stored Telegram session",
+      },
+    ],
   },
   matches: (parsed) =>
     parsed.command === "auth" && parsed.subcommand === "logout",

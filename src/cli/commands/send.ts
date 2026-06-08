@@ -10,12 +10,26 @@ export const sendCommand: CommandSpec = {
     description:
       "Sends a text message to a Telegram peer and returns the sent message as JSON.",
     options: [
-      "--to <peer>          Required destination chat, username, id, or peer alias",
-      "--text <message>     Required message text",
-      "--help               Show this help",
+      {
+        name: "--to",
+        value: "<peer>",
+        summary: "Destination chat, username, id, or peer alias",
+        required: true,
+      },
+      {
+        name: "--text",
+        value: "<message>",
+        summary: "Message text",
+        required: true,
+      },
     ],
-    examples: ['firetg messages send --to me --text "hello"'],
-    aliases: ["firetg send"],
+    examples: [
+      {
+        command: 'firetg messages send --to me --text "hello"',
+        summary: "Send a message to yourself",
+      },
+    ],
+    aliases: ["send"],
   },
   matches: (parsed) =>
     matchesScopedCommand(parsed, "messages", "send") ||

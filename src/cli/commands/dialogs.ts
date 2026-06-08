@@ -11,15 +11,29 @@ export const dialogsListCommand: CommandSpec = {
     description:
       "Reads Telegram dialogs, optionally scoped to a built-in or custom folder.",
     options: [
-      "--folder <id>    Folder id from folders list, or 1 for archive",
-      "--limit <n>      Maximum dialogs to return; default 20",
-      "--help           Show this help",
+      {
+        name: "--folder",
+        value: "<id>",
+        summary: "Folder id from folders list, or 1 for archive",
+      },
+      {
+        name: "--limit",
+        value: "<n>",
+        summary: "Maximum dialogs to return",
+        defaultValue: "20",
+      },
     ],
     examples: [
-      "firetg dialogs list",
-      "firetg dialogs list --folder 1 --limit 20",
+      {
+        command: "firetg dialogs list",
+        summary: "List recent dialogs",
+      },
+      {
+        command: "firetg dialogs list --folder 1 --limit 20",
+        summary: "List archived dialogs",
+      },
     ],
-    aliases: ["firetg dialogs:list"],
+    aliases: ["dialogs:list"],
   },
   matches: (parsed) =>
     matchesScopedCommand(parsed, "dialogs", "list") ||

@@ -78,11 +78,12 @@ describe("firetg cli", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(harness.stdout.join("")).toContain("Usage:");
-    expect(harness.stdout.join("")).toContain("Modules:");
+    expect(harness.stdout.join("")).toContain("USAGE");
+    expect(harness.stdout.join("")).toContain("COMMAND GROUPS");
     expect(harness.stdout.join("")).toContain("auth");
     expect(harness.stdout.join("")).toContain("messages");
-    expect(harness.stdout.join("")).toContain("Run \"firetg <module>\"");
+    expect(harness.stdout.join("")).toContain("GETTING STARTED");
+    expect(harness.stdout.join("")).toContain("Use \"firetg <module>\"");
     expect(harness.stderr.join("")).toBe("");
   });
 
@@ -97,7 +98,7 @@ describe("firetg cli", () => {
 
       expect(exitCode).toBe(0);
       expect(harness.stdout.join("")).toContain(`firetg ${module.scope}`);
-      expect(harness.stdout.join("")).toContain("Commands:");
+      expect(harness.stdout.join("")).toContain("COMMANDS");
       for (const command of module.commands) {
         expect(harness.stdout.join("")).toContain(`firetg ${command.usage}`);
       }
@@ -133,7 +134,7 @@ describe("firetg cli", () => {
     expect(harness.stdout.join("")).toContain("firetg messages list");
     expect(harness.stdout.join("")).toContain("--chat <peer>");
     expect(harness.stdout.join("")).toContain("--search <query>");
-    expect(harness.stdout.join("")).toContain("Examples:");
+    expect(harness.stdout.join("")).toContain("EXAMPLES");
     expect(harness.stderr.join("")).toBe("");
   });
 

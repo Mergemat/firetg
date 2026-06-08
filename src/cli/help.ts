@@ -1,79 +1,171 @@
 import { commandModules } from "./commands";
-import type { CommandModule, CommandSpec } from "./commands";
+import type { CommandModule, CommandOption, CommandSpec } from "./commands";
+
+const globalOptions: CommandOption[] = [
+  {
+    name: "--help",
+    summary: "Show help for a command or module",
+  },
+];
 
 export function renderHelp(): string {
-  const modules = commandModules
-    .map((module) => `  ${module.scope.padEnd(10)} ${module.summary}`)
-    .join("\n");
+  const modules = renderRows(
+    commandModules.map((module) => [module.scope, module.summary]),
+  );
 
   return `firetg - agent-ready Telegram MTProto CLI
 
-Usage:
-  firetg <module> <command> [options]
-  firetg <module>
-  firetg <module> --help
-  firetg <module> <command> --help
+USAGE
+  firetg <module> <command> [flags]
 
-Modules:
+COMMAND GROUPS
 ${modules}
 
-Output:
+GETTING STARTED
+  firetg auth login
+  firetg profiles me
+  firetg messages list --chat me --limit 20
+
+OUTPUT
   JSON is written to stdout.
   Prompts, QR login, and diagnostics are written to stderr.
 
-Run "firetg <module>" for module help.
+FLAGS
+${renderOptions(globalOptions)}
+
+Use "firetg <module>" for group help and "firetg <module> <command> --help" for command help.
 `;
 }
 
 export function renderModuleHelp(module: CommandModule): string {
-  const commands = module.commands
-    .map((command) => {
-      const name = command.id.slice(module.scope.length + 1);
-      return `  ${name.padEnd(10)} ${command.help.summary}\n              firetg ${command.usage}`;
-    })
-    .join("\n");
+  const commands = renderRows(
+    module.commands.map((command) => [
+      commandName(command),
+      [
+        command.help.summary,
+        `firetg ${command.usage}`,
+        ...(command.help.aliases?.map((alias) => `alias: firetg ${alias}`) ??
+          []),
+      ],
+    ]),
+  );
 
   return `firetg ${module.scope} - ${module.summary}
 
 ${module.description ?? module.summary}
 
-Usage:
-  firetg ${module.scope} <command> [options]
-  firetg ${module.scope} <command> --help
+USAGE
+  firetg ${module.scope} <command> [flags]
 
-Commands:
+COMMANDS
 ${commands}
 
-Options:
-  --help      Show ${module.scope} help
+FLAGS
+${renderOptions(globalOptions)}
 `;
 }
 
 export function renderCommandHelp(command: CommandSpec): string {
   const sections = [
-    renderSection("Options", command.help.options),
-    renderSection("Aliases", command.help.aliases),
-    renderSection("Examples", command.help.examples),
+    renderOptionSection([...(command.help.options ?? []), ...globalOptions]),
+    renderAliasSection(command.help.aliases),
+    renderExampleSection(command.help.examples),
   ].filter((section) => section.length > 0);
 
   return [
-    `firetg ${command.usage}`,
+    `firetg ${commandPath(command)} - ${command.help.summary}`,
     "",
     command.help.description ?? command.help.summary,
     "",
-    "Usage:",
+    "USAGE",
     `  firetg ${command.usage}`,
     ...sections,
   ]
     .join("\n");
 }
 
-function renderSection(title: string, lines: string[] | undefined): string {
-  if (!lines?.length) return "";
+function renderOptionSection(options: CommandOption[]): string {
+  if (options.length === 0) return "";
 
   return [
     "",
-    `${title}:`,
-    ...lines.map((line) => `  ${line}`),
+    "FLAGS",
+    renderOptions(options),
   ].join("\n");
+}
+
+function renderOptions(options: CommandOption[]): string {
+  const flags: [string, string][] = options.map((option) => [
+    optionLabel(option),
+    optionDescription(option),
+  ]);
+
+  return renderRows(flags);
+}
+
+function renderAliasSection(aliases: string[] | undefined): string {
+  if (!aliases?.length) return "";
+
+  return [
+    "",
+    "ALIASES",
+    ...aliases.map((alias) => `  firetg ${alias}`),
+  ].join("\n");
+}
+
+function renderExampleSection(
+  examples: CommandSpec["help"]["examples"],
+): string {
+  if (!examples?.length) return "";
+
+  return [
+    "",
+    "EXAMPLES",
+    ...examples.map((example) =>
+      example.summary === undefined
+        ? `  ${example.command}`
+        : `  # ${example.summary}\n  ${example.command}`,
+    ),
+  ].join("\n");
+}
+
+function renderRows(rows: [string, string | string[]][]): string {
+  if (rows.length === 0) return "";
+
+  const width = Math.max(...rows.map(([left]) => left.length));
+
+  return rows
+    .map(([left, right]) => {
+      const lines = Array.isArray(right) ? right : [right];
+      const [first = "", ...rest] = lines;
+      return [
+        `  ${left.padEnd(width)}  ${first}`,
+        ...rest.map((line) => `  ${" ".repeat(width)}  ${line}`),
+      ].join("\n");
+    })
+    .join("\n");
+}
+
+function optionLabel(option: CommandOption): string {
+  return [option.name, option.value].filter(Boolean).join(" ");
+}
+
+function optionDescription(option: CommandOption): string {
+  return [
+    option.summary,
+    option.required ? "(required)" : undefined,
+    option.defaultValue === undefined
+      ? undefined
+      : `(default ${option.defaultValue})`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function commandName(command: CommandSpec): string {
+  return command.id.slice(command.id.indexOf(".") + 1);
+}
+
+function commandPath(command: CommandSpec): string {
+  return command.id.replace(".", " ");
 }
