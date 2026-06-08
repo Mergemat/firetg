@@ -25,6 +25,8 @@ Represents the currently authenticated Telegram account.
 Represents a Telegram broadcast channel.
 
 - `channels view --username <username>` returns channel metadata.
+- `channels messages --username <username>` reads channel message history, newest first.
+- `channels pinned --username <username>` reads pinned channel messages, newest first.
 - Channel metadata includes the description and pinned message when Telegram exposes them.
 - Use Channel for broadcast channel details, not Dialog list entries.
 
@@ -35,6 +37,7 @@ Represents Telegram message actions for a peer.
 - `messages send` sends a message to a peer.
 - `messages list` reads message history for a chat, newest first.
 - `messages pinned` reads pinned messages for a chat, newest first.
+- Prefer Channel commands for broadcast channels.
 - Folders organize dialogs, not message streams.
 
 ### Dialog

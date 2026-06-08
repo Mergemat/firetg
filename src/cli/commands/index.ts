@@ -1,5 +1,9 @@
 import { authLoginCommand, authLogoutCommand } from "./auth";
-import { channelViewCommand } from "./channels";
+import {
+  channelMessagesCommand,
+  channelPinnedCommand,
+  channelViewCommand,
+} from "./channels";
 import { dialogsListCommand } from "./dialogs";
 import { foldersListCommand } from "./folders";
 import { meCommand, profileViewCommand } from "./me";
@@ -26,8 +30,8 @@ export const commandModules: CommandModule[] = [
     scope: "channels",
     summary: "Telegram channel details",
     description:
-      "Inspect Telegram channel metadata, description, and pinned message.",
-    commands: [channelViewCommand],
+      "Inspect Telegram channel metadata, messages, and pinned messages.",
+    commands: [channelViewCommand, channelMessagesCommand, channelPinnedCommand],
   },
   {
     scope: "messages",

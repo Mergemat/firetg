@@ -45,13 +45,13 @@ firetg profiles view --id 123456789
 
 firetg channels view --username telegram
 firetg channels view --id 100
+firetg channels messages --username example_channel --limit 50
+firetg channels pinned --username example_channel --limit 20
 
 firetg messages send --username telegram --text "hello"
 firetg messages send --id 123456789 --text "hello"
 firetg messages list --chat me --limit 20
 firetg messages list --chat me --search deploy --limit 10
-firetg messages list --chat example_channel --limit 50
-firetg messages pinned --chat example_channel --limit 20
 
 firetg folders list
 firetg dialogs list --folder 1 --limit 20
@@ -65,8 +65,9 @@ Use `--help` for more detail:
 firetg --help
 firetg messages --help
 firetg channels view --help
+firetg channels messages --help
+firetg channels pinned --help
 firetg messages list --help
-firetg messages pinned --help
 ```
 
 ## Output
