@@ -1,6 +1,8 @@
 import { Api, TelegramClient } from "teleproto";
 import { Logger, LogLevel } from "teleproto/extensions/Logger";
 import { StringSession } from "teleproto/sessions";
+import { getDisplayName, getPeerId } from "teleproto/Utils";
+import type { Entity } from "teleproto/define";
 import type { TelegramConfig } from "./config";
 
 export type Account = {
@@ -74,6 +76,25 @@ export type FireTgClient = {
 export type CreateTelegramClient = (config: TelegramConfig) => Promise<FireTgClient>;
 type TeleprotoDialog = Awaited<ReturnType<TelegramClient["getDialogs"]>>[number];
 
+export type FilterableDialogSummary = DialogSummary & {
+  inputPeer: Api.TypeInputPeer;
+  entity?: Entity;
+  unreadMarked?: boolean;
+  muteUntil?: number;
+};
+
+export type DialogSource = {
+  getDialogFilters: () => Promise<Api.TypeDialogFilter[]>;
+  getDialogSummaries: (options: {
+    limit: number;
+    folder?: number;
+  }) => Promise<DialogSummary[]>;
+  getFilterableDialogSummaries: () => Promise<FilterableDialogSummary[]>;
+  getPeerDialogSummaries: (
+    peers: Api.TypeInputPeer[],
+  ) => Promise<DialogSummary[]>;
+};
+
 export async function createTeleprotoClient(
   config: TelegramConfig,
 ): Promise<FireTgClient> {
@@ -84,12 +105,16 @@ export async function createTeleprotoClient(
     {
       baseLogger: new Logger(LogLevel.NONE),
       connectionRetries: 5,
+      autoReconnect: false,
+      reconnectRetries: 0,
     },
   );
 
   if (config.session) {
     await client.connect();
   }
+
+  const dialogSource = createTeleprotoDialogSource(client);
 
   return {
     async login(params) {
@@ -127,20 +152,10 @@ export async function createTeleprotoClient(
       );
     },
     async listFolders() {
-      const response = await client.invoke(new Api.messages.GetDialogFilters());
-      return response.filters.map(serializeFolder);
+      return (await dialogSource.getDialogFilters()).map(serializeFolder);
     },
     async listDialogs(options) {
-      if (options.folder !== undefined && !isPeerFolderId(options.folder)) {
-        const dialogs = await listDialogsByFilter(client, options.folder);
-        return dialogs.slice(0, options.limit).map(serializeDialog);
-      }
-
-      const dialogs = await client.getDialogs({
-        limit: options.limit,
-        folder: options.folder,
-      });
-      return dialogs.map(serializeDialog);
+      return listDialogSummaries(dialogSource, options);
     },
     async listMessages(options) {
       const messages = await client.getMessages(options.chat, {
@@ -150,33 +165,86 @@ export async function createTeleprotoClient(
       return messages.map(serializeMessage);
     },
     async disconnect() {
-      await client.disconnect();
+      await client.destroy();
     },
   };
 }
 
-async function listDialogsByFilter(
-  client: TelegramClient,
-  filterId: number,
-): Promise<TeleprotoDialog[]> {
-  const filter = await findDialogFilter(client, filterId);
+export async function listDialogSummaries(
+  source: DialogSource,
+  options: { limit: number; folder?: number },
+): Promise<DialogSummary[]> {
+  if (options.folder === undefined || isPeerFolderId(options.folder)) {
+    return source.getDialogSummaries(options);
+  }
+
+  const filter = findDialogFilter(
+    await source.getDialogFilters(),
+    options.folder,
+  );
 
   if (!filter) {
     throw new Error(
-      `Custom folder ${filterId} not found. Run folders list to see available ids.`,
+      `Custom folder ${options.folder} not found. Run folders list to see available ids.`,
     );
   }
 
-  const dialogs = await client.getDialogs({});
-  return dialogs.filter((dialog) => matchesDialogFilter(dialog, filter));
+  const explicitPeers = explicitFilterPeers(filter);
+  if (explicitPeers) {
+    try {
+      return await source.getPeerDialogSummaries(
+        explicitPeers.slice(0, options.limit),
+      );
+    } catch {
+      return listDialogSummariesByScan(source, filter, options.limit);
+    }
+  }
+
+  return listDialogSummariesByScan(source, filter, options.limit);
 }
 
-async function findDialogFilter(
-  client: TelegramClient,
+async function listDialogSummariesByScan(
+  source: DialogSource,
+  filter: Api.DialogFilter | Api.DialogFilterChatlist,
+  limit: number,
+): Promise<DialogSummary[]> {
+  const dialogs = await source.getFilterableDialogSummaries();
+  return dialogs
+    .filter((dialog) => matchesDialogFilter(dialog, filter))
+    .slice(0, limit)
+    .map(cleanDialogSummary);
+}
+
+function createTeleprotoDialogSource(client: TelegramClient): DialogSource {
+  return {
+    async getDialogFilters() {
+      const response = await client.invoke(new Api.messages.GetDialogFilters());
+      return response.filters;
+    },
+    async getDialogSummaries(options) {
+      return (await client.getDialogs(options)).map(serializeDialog);
+    },
+    async getFilterableDialogSummaries() {
+      return (await client.getDialogs({})).map(toFilterableDialogSummary);
+    },
+    async getPeerDialogSummaries(peers) {
+      if (peers.length === 0) return [];
+
+      const response = await client.invoke(
+        new Api.messages.GetPeerDialogs({
+          peers: peers.map((peer) => new Api.InputDialogPeer({ peer })),
+        }),
+      );
+      return peerDialogsToSummaries(response);
+    },
+  };
+}
+
+function findDialogFilter(
+  filters: Api.TypeDialogFilter[],
   filterId: number,
-): Promise<Api.DialogFilter | Api.DialogFilterChatlist | undefined> {
-  const response = await client.invoke(new Api.messages.GetDialogFilters());
-  return response.filters.find(
+): Api.DialogFilter | Api.DialogFilterChatlist | undefined {
+  return filters.find(
     (filter): filter is Api.DialogFilter | Api.DialogFilterChatlist =>
       (filter instanceof Api.DialogFilter ||
         filter instanceof Api.DialogFilterChatlist) &&
@@ -184,11 +252,118 @@ async function findDialogFilter(
   );
 }
 
-function matchesDialogFilter(
-  dialog: TeleprotoDialog,
+function explicitFilterPeers(
+  filter: Api.DialogFilter | Api.DialogFilterChatlist,
+): Api.TypeInputPeer[] | undefined {
+  if (!isExplicitOnlyFilter(filter)) return undefined;
+
+  return uniqueInputPeers([
+    ...filter.pinnedPeers,
+    ...filter.includePeers,
+  ]);
+}
+
+function isExplicitOnlyFilter(
   filter: Api.DialogFilter | Api.DialogFilterChatlist,
 ): boolean {
-  const peerKey = inputPeerKey(dialog.inputEntity);
+  if (filter instanceof Api.DialogFilterChatlist) return true;
+
+  return (
+    filter.excludePeers.length === 0 &&
+    !filter.contacts &&
+    !filter.nonContacts &&
+    !filter.groups &&
+    !filter.broadcasts &&
+    !filter.bots &&
+    !filter.excludeMuted &&
+    !filter.excludeRead &&
+    !filter.excludeArchived
+  );
+}
+
+function uniqueInputPeers(peers: Api.TypeInputPeer[]): Api.TypeInputPeer[] {
+  const seen = new Set<string>();
+  const unique: Api.TypeInputPeer[] = [];
+
+  for (const peer of peers) {
+    const key = inputPeerKey(peer);
+    if (!key || seen.has(key)) continue;
+
+    seen.add(key);
+    unique.push(peer);
+  }
+
+  return unique;
+}
+
+function toFilterableDialogSummary(
+  dialog: TeleprotoDialog,
+): FilterableDialogSummary {
+  return {
+    ...serializeDialog(dialog),
+    inputPeer: dialog.inputEntity,
+    entity: dialog.entity,
+    unreadMarked: dialog.dialog.unreadMark,
+    muteUntil: dialog.dialog.notifySettings.muteUntil,
+  };
+}
+
+function peerDialogsToSummaries(
+  response: Api.messages.PeerDialogs,
+): DialogSummary[] {
+  const entities = entitiesByPeer(response);
+
+  return response.dialogs
+    .filter((dialog): dialog is Api.Dialog => dialog instanceof Api.Dialog)
+    .map((dialog) => serializePeerDialog(dialog, entities));
+}
+
+function entitiesByPeer(
+  response: Api.messages.PeerDialogs,
+): Map<string, Entity> {
+  const entities = new Map<string, Entity>();
+
+  for (const entity of [...response.users, ...response.chats]) {
+    if (entity instanceof Api.UserEmpty || entity instanceof Api.ChatEmpty) {
+      continue;
+    }
+
+    entities.set(getPeerId(entity), entity);
+  }
+
+  return entities;
+}
+
+function serializePeerDialog(
+  dialog: Api.Dialog,
+  entities: Map<string, Entity>,
+): DialogSummary {
+  const entity = entities.get(getPeerId(dialog.peer));
+
+  return cleanDialogSummary({
+    id: entity ? getPeerId(entity) : undefined,
+    title: entity ? getDisplayName(entity) : undefined,
+    folderId: dialog.folderId,
+    unreadCount: dialog.unreadCount,
+    isUser: entity instanceof Api.User,
+    isGroup: isGroupEntity(entity),
+    isChannel: entity instanceof Api.Channel,
+  });
+}
+
+function isGroupEntity(entity: Entity | undefined): boolean {
+  return (
+    entity instanceof Api.Chat ||
+    entity instanceof Api.ChatForbidden ||
+    (entity instanceof Api.Channel && !!entity.megagroup)
+  );
+}
+
+function matchesDialogFilter(
+  dialog: FilterableDialogSummary,
+  filter: Api.DialogFilter | Api.DialogFilterChatlist,
+): boolean {
+  const peerKey = inputPeerKey(dialog.inputPeer);
   if (!peerKey) return false;
 
   const excludedPeers =
@@ -207,7 +382,11 @@ function matchesDialogFilter(
   if (filter instanceof Api.DialogFilterChatlist) return false;
 
   if (filter.excludeArchived && dialog.folderId !== undefined) return false;
-  if (filter.excludeRead && dialog.unreadCount <= 0 && !dialog.dialog.unreadMark) {
+  if (
+    filter.excludeRead &&
+    (dialog.unreadCount ?? 0) <= 0 &&
+    !dialog.unreadMarked
+  ) {
     return false;
   }
   if (filter.excludeMuted && isMuted(dialog)) return false;
@@ -216,7 +395,7 @@ function matchesDialogFilter(
 }
 
 function matchesDialogFilterCategory(
-  dialog: TeleprotoDialog,
+  dialog: FilterableDialogSummary,
   filter: Api.DialogFilter,
 ): boolean {
   if (filter.bots && dialog.entity instanceof Api.User && dialog.entity.bot) {
@@ -251,9 +430,11 @@ function matchesDialogFilterCategory(
   );
 }
 
-function isMuted(dialog: TeleprotoDialog): boolean {
-  const muteUntil = dialog.dialog.notifySettings.muteUntil;
-  return muteUntil !== undefined && muteUntil > Math.floor(Date.now() / 1000);
+function isMuted(dialog: FilterableDialogSummary): boolean {
+  return (
+    dialog.muteUntil !== undefined &&
+    dialog.muteUntil > Math.floor(Date.now() / 1000)
+  );
 }
 
 function inputPeerKey(inputPeer: Api.TypeInputPeer): string | undefined {
@@ -277,7 +458,7 @@ function isPeerFolderId(folderId: number): boolean {
 }
 
 function serializeDialog(dialog: TeleprotoDialog): DialogSummary {
-  return {
+  return cleanDialogSummary({
     id: dialog.id?.toString(),
     title: dialog.title,
     folderId: dialog.folderId,
@@ -285,7 +466,23 @@ function serializeDialog(dialog: TeleprotoDialog): DialogSummary {
     isUser: dialog.isUser,
     isGroup: dialog.isGroup,
     isChannel: dialog.isChannel,
-  };
+  });
+}
+
+function cleanDialogSummary(summary: DialogSummary): DialogSummary {
+  const result: DialogSummary = {};
+
+  if (summary.id !== undefined) result.id = summary.id;
+  if (summary.title !== undefined) result.title = summary.title;
+  if (summary.folderId !== undefined) result.folderId = summary.folderId;
+  if (summary.unreadCount !== undefined) {
+    result.unreadCount = summary.unreadCount;
+  }
+  if (summary.isUser !== undefined) result.isUser = summary.isUser;
+  if (summary.isGroup !== undefined) result.isGroup = summary.isGroup;
+  if (summary.isChannel !== undefined) result.isChannel = summary.isChannel;
+
+  return result;
 }
 
 function serializeUser(user: Api.User): Account {
