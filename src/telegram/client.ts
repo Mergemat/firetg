@@ -35,6 +35,11 @@ export async function createTeleprotoClient(
 
   return {
     login: (params) => loginTelegramAccount(client, config, params),
+    logout: async () => {
+      if (!(await client.logOut())) {
+        throw new Error("Telegram logout failed");
+      }
+    },
     getMe: () => getCurrentAccount(client),
     sendMessage: (to, text) => sendTelegramMessage(client, to, text),
     listFolders: async () =>
