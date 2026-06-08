@@ -1,12 +1,25 @@
 {
   "name": "firetg",
+  "version": "0.1.0",
   "module": "index.ts",
   "type": "module",
-  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mergemat/firetg.git"
+  },
   "bin": {
-    "firetg": "./index.ts"
+    "firetg": "index.ts"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
+    "release": "bun test && bun run typecheck && bun scripts/release.ts",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
   },
