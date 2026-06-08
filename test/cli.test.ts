@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli";
+import { commandModules } from "../src/cli/commands";
 import type { FireTgClient } from "../src/telegram";
 
 function createHarness() {
@@ -67,7 +68,7 @@ async function createStoredAuthEnv(session = "session") {
 }
 
 describe("firetg cli", () => {
-  test("--help prints available commands", async () => {
+  test("--help prints module overview", async () => {
     const harness = createHarness();
 
     const exitCode = await runCli(["--help"], {
@@ -76,10 +77,62 @@ describe("firetg cli", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(harness.stdout.join("")).toContain("auth login");
-    expect(harness.stdout.join("")).toContain("profiles me");
-    expect(harness.stdout.join("")).toContain("folders list");
-    expect(harness.stdout.join("")).toContain("messages list");
+    expect(harness.stdout.join("")).toContain("Usage:");
+    expect(harness.stdout.join("")).toContain("Modules:");
+    expect(harness.stdout.join("")).toContain("auth");
+    expect(harness.stdout.join("")).toContain("messages");
+    expect(harness.stdout.join("")).toContain("Run \"firetg <module>\"");
+    expect(harness.stderr.join("")).toBe("");
+  });
+
+  test("module without subcommand prints module help", async () => {
+    for (const module of commandModules) {
+      const harness = createHarness();
+
+      const exitCode = await runCli([module.scope], {
+        env: {},
+        io: harness.io,
+      });
+
+      expect(exitCode).toBe(0);
+      expect(harness.stdout.join("")).toContain(`firetg ${module.scope}`);
+      expect(harness.stdout.join("")).toContain("Commands:");
+      for (const command of module.commands) {
+        expect(harness.stdout.join("")).toContain(`firetg ${command.usage}`);
+      }
+      expect(harness.stderr.join("")).toBe("");
+    }
+  });
+
+  test("module --help prints module help", async () => {
+    const harness = createHarness();
+
+    const exitCode = await runCli(["messages", "--help"], {
+      env: {},
+      io: harness.io,
+    });
+
+    expect(exitCode).toBe(0);
+    expect(harness.stdout.join("")).toContain("firetg messages");
+    expect(harness.stdout.join("")).toContain("send");
+    expect(harness.stdout.join("")).toContain("list");
+    expect(harness.stdout.join("")).toContain("firetg messages list");
+    expect(harness.stderr.join("")).toBe("");
+  });
+
+  test("command --help prints command help", async () => {
+    const harness = createHarness();
+
+    const exitCode = await runCli(["messages", "list", "--help"], {
+      env: {},
+      io: harness.io,
+    });
+
+    expect(exitCode).toBe(0);
+    expect(harness.stdout.join("")).toContain("firetg messages list");
+    expect(harness.stdout.join("")).toContain("--chat <peer>");
+    expect(harness.stdout.join("")).toContain("--search <query>");
+    expect(harness.stdout.join("")).toContain("Examples:");
     expect(harness.stderr.join("")).toBe("");
   });
 

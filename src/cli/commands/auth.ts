@@ -15,6 +15,19 @@ import type { CommandSpec } from "./types";
 export const authLoginCommand: CommandSpec = {
   id: "auth.login",
   usage: "auth login [--phone]",
+  help: {
+    summary: "Log in and store Telegram credentials/session",
+    description:
+      "Starts Telegram authorization. QR login is used by default; phone-code login is available with --phone.",
+    options: [
+      "--phone    Use phone-code login instead of QR login",
+      "--help     Show this help",
+    ],
+    examples: [
+      "firetg auth login",
+      "firetg auth login --phone",
+    ],
+  },
   matches: (parsed) =>
     parsed.command === "auth" && parsed.subcommand === "login",
   run: ({ parsed, context }) => runAuthLogin(parsed.flags, context),
@@ -23,6 +36,13 @@ export const authLoginCommand: CommandSpec = {
 export const authLogoutCommand: CommandSpec = {
   id: "auth.logout",
   usage: "auth logout",
+  help: {
+    summary: "Revoke and remove the stored Telegram session",
+    description:
+      "Logs out the stored Telegram session when possible, then deletes the local session file.",
+    options: ["--help    Show this help"],
+    examples: ["firetg auth logout"],
+  },
   matches: (parsed) =>
     parsed.command === "auth" && parsed.subcommand === "logout",
   run: ({ context }) => runAuthLogout(context),
