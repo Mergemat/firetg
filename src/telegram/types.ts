@@ -8,6 +8,16 @@ export type Account = {
   phone?: string;
 };
 
+export type Profile = Account & {
+  about?: string;
+  bot?: boolean;
+  verified?: boolean;
+  premium?: boolean;
+  restricted?: boolean;
+  scam?: boolean;
+  fake?: boolean;
+};
+
 export type SentMessage = {
   id?: number;
   date?: number;
@@ -58,6 +68,7 @@ export type FireTgClient = {
   login: (params: LoginParams) => Promise<{ session: string }>;
   logout: () => Promise<void>;
   getMe: () => Promise<Account>;
+  getProfile: (username: string) => Promise<Profile>;
   sendMessage: (to: string, text: string) => Promise<SentMessage>;
   listFolders: () => Promise<FolderSummary[]>;
   listDialogs: (options: { limit: number; folder?: number }) => Promise<DialogSummary[]>;
