@@ -227,6 +227,70 @@ describe("telegram message listing", () => {
     ]);
   });
 
+  test("media-only messages include media details", async () => {
+    const client = {
+      getMessages: async () => [
+        new Api.Message({
+          id: 81,
+          date: 1_800_000_081,
+          message: "",
+          media: new Api.MessageMediaPhoto({
+            photo: new Api.PhotoEmpty({ id: bigInt(1) }),
+          }),
+        }),
+        new Api.Message({
+          id: 82,
+          date: 1_800_000_082,
+          message: "",
+          media: new Api.MessageMediaDocument({
+            document: new Api.Document({
+              id: bigInt(2),
+              accessHash: bigInt(20),
+              fileReference: Buffer.alloc(0),
+              date: 1_800_000_000,
+              mimeType: "video/mp4",
+              size: bigInt(123456),
+              dcId: 2,
+              attributes: [
+                new Api.DocumentAttributeFilename({ fileName: "clip.mp4" }),
+                new Api.DocumentAttributeVideo({
+                  duration: 7,
+                  w: 1280,
+                  h: 720,
+                }),
+              ],
+            }),
+          }),
+        }),
+      ],
+    };
+
+    await expect(
+      listTelegramMessages(client as never, {
+        chat: "firetg",
+        limit: 2,
+      }),
+    ).resolves.toEqual([
+      {
+        id: 82,
+        date: 1_800_000_082,
+        text: "",
+        media: {
+          type: "video",
+          fileName: "clip.mp4",
+          mimeType: "video/mp4",
+          size: "123456",
+        },
+      },
+      {
+        id: 81,
+        date: 1_800_000_081,
+        text: "",
+        media: { type: "photo" },
+      },
+    ]);
+  });
+
   test("pinned messages use the pinned filter and are newest first", async () => {
     const client = {
       getMessages: async (

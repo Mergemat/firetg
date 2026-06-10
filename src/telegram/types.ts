@@ -46,9 +46,20 @@ export type MessageSummary = {
   id?: number;
   date?: number;
   text?: string;
+  media?: MessageMediaSummary;
   senderId?: string;
   chatId?: string;
   outgoing?: boolean;
+};
+
+export type MessageMediaSummary = {
+  type: string;
+  fileName?: string;
+  mimeType?: string;
+  size?: string;
+  title?: string;
+  url?: string;
+  phoneNumber?: string;
 };
 
 export type ChannelDetails = {
