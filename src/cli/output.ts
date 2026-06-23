@@ -7,7 +7,7 @@ export function writeJson(
   ok: boolean,
   body: { data?: unknown; error?: unknown },
 ) {
-  context.io.stdout(`${JSON.stringify({ ok, ...body })}\n`);
+  context.io.stdout(`${JSON.stringify(ok ? body.data : { ok, ...body })}\n`);
 }
 
 export function writeError(

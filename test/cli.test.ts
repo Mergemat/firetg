@@ -211,14 +211,11 @@ describe("firetg cli", () => {
 
     expect(exitCode).toBe(0);
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: true,
-      data: {
-        id: "42",
-        username: "agent",
-        firstName: "Fire",
-        lastName: "TG",
-        phone: "+10000000000",
-      },
+      id: "42",
+      username: "agent",
+      firstName: "Fire",
+      lastName: "TG",
+      phone: "+10000000000",
     });
     expect(harness.stderr.join("")).toBe("");
   });
@@ -251,14 +248,11 @@ describe("firetg cli", () => {
     expect(exitCode).toBe(0);
     expect(viewed).toEqual(["firetg"]);
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: true,
-      data: {
-        id: "42",
-        username: "firetg",
-        firstName: "Fire",
-        lastName: "TG",
-        about: "Agent-ready Telegram CLI",
-      },
+      id: "42",
+      username: "firetg",
+      firstName: "Fire",
+      lastName: "TG",
+      about: "Agent-ready Telegram CLI",
     });
     expect(harness.stderr.join("")).toBe("");
   });
@@ -289,12 +283,9 @@ describe("firetg cli", () => {
     expect(exitCode).toBe(0);
     expect(viewed).toEqual(["123456789"]);
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: true,
-      data: {
-        id: "123456789",
-        username: "clrdrv",
-        firstName: "Kirill",
-      },
+      id: "123456789",
+      username: "clrdrv",
+      firstName: "Kirill",
     });
   });
 
@@ -370,18 +361,15 @@ describe("firetg cli", () => {
     expect(exitCode).toBe(0);
     expect(viewed).toEqual(["firetg"]);
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: true,
-      data: {
-        id: "100",
-        title: "FireTG",
-        username: "firetg",
-        description: "Agent-ready Telegram CLI",
-        participantsCount: 123,
-        pinnedMessage: {
-          id: 7,
-          date: 1_800_000_003,
-          text: "Start here",
-        },
+      id: "100",
+      title: "FireTG",
+      username: "firetg",
+      description: "Agent-ready Telegram CLI",
+      participantsCount: 123,
+      pinnedMessage: {
+        id: 7,
+        date: 1_800_000_003,
+        text: "Start here",
       },
     });
     expect(harness.stderr.join("")).toBe("");
@@ -415,17 +403,14 @@ describe("firetg cli", () => {
 
     expect(exitCode).toBe(0);
     expect(calls).toEqual([{ chat: "example_channel", limit: 2 }]);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: true,
-      data: [
-        {
-          id: 35,
-          date: 1_800_000_200,
-          text: "latest channel post",
-          chatId: "2139391239",
-        },
-      ],
-    });
+    expect(JSON.parse(harness.stdout.join(""))).toEqual([
+      {
+        id: 35,
+        date: 1_800_000_200,
+        text: "latest channel post",
+        chatId: "2139391239",
+      },
+    ]);
   });
 
   test("channels pinned emits pinned channel messages as JSON", async () => {
@@ -456,17 +441,14 @@ describe("firetg cli", () => {
 
     expect(exitCode).toBe(0);
     expect(calls).toEqual([{ chat: "example_channel", limit: 2 }]);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: true,
-      data: [
-        {
-          id: 35,
-          date: 1_800_000_200,
-          text: "latest pin",
-          chatId: "2139391239",
-        },
-      ],
-    });
+    expect(JSON.parse(harness.stdout.join(""))).toEqual([
+      {
+        id: 35,
+        date: 1_800_000_200,
+        text: "latest pin",
+        chatId: "2139391239",
+      },
+    ]);
   });
 
   test("messages send accepts a username destination", async () => {
@@ -491,8 +473,9 @@ describe("firetg cli", () => {
     expect(exitCode).toBe(0);
     expect(sent).toEqual([{ to: "telegram", text: "hello" }]);
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: true,
-      data: { id: 7, date: 1_800_000_000, text: "hello" },
+      id: 7,
+      date: 1_800_000_000,
+      text: "hello",
     });
   });
 
@@ -518,8 +501,9 @@ describe("firetg cli", () => {
     expect(exitCode).toBe(0);
     expect(sent).toEqual([{ to: "123456789", text: "hello" }]);
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: true,
-      data: { id: 8, date: 1_800_000_001, text: "hello" },
+      id: 8,
+      date: 1_800_000_001,
+      text: "hello",
     });
   });
 
@@ -608,13 +592,10 @@ describe("firetg cli", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: true,
-      data: [
-        { id: 1, title: "Archive", type: "DialogFilter" },
-        { id: 2, title: "Work", type: "DialogFilter", emoticon: "💼" },
-      ],
-    });
+    expect(JSON.parse(harness.stdout.join(""))).toEqual([
+      { id: 1, title: "Archive", type: "DialogFilter" },
+      { id: 2, title: "Work", type: "DialogFilter", emoticon: "💼" },
+    ]);
   });
 
   test("dialogs list scopes dialogs to a folder and emits JSON", async () => {
@@ -646,18 +627,15 @@ describe("firetg cli", () => {
 
     expect(exitCode).toBe(0);
     expect(calls).toEqual([{ limit: 3, folder: 2 }]);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: true,
-      data: [
-        {
-          id: "100",
-          title: "Ops",
-          folderId: 2,
-          unreadCount: 4,
-          isGroup: true,
-        },
-      ],
-    });
+    expect(JSON.parse(harness.stdout.join(""))).toEqual([
+      {
+        id: "100",
+        title: "Ops",
+        folderId: 2,
+        unreadCount: 4,
+        isGroup: true,
+      },
+    ]);
   });
 
   test("messages list emits chat messages as JSON", async () => {
@@ -689,18 +667,15 @@ describe("firetg cli", () => {
 
     expect(exitCode).toBe(0);
     expect(calls).toEqual([{ chat: "me", limit: 2, search: "deploy" }]);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: true,
-      data: [
-        {
-          id: 11,
-          date: 1_800_000_100,
-          text: "deploy done",
-          chatId: "me",
-          outgoing: false,
-        },
-      ],
-    });
+    expect(JSON.parse(harness.stdout.join(""))).toEqual([
+      {
+        id: 11,
+        date: 1_800_000_100,
+        text: "deploy done",
+        chatId: "me",
+        outgoing: false,
+      },
+    ]);
   });
 
   test("messages list validates --chat before loading config", async () => {
@@ -749,17 +724,14 @@ describe("firetg cli", () => {
 
     expect(exitCode).toBe(0);
     expect(calls).toEqual([{ chat: "example_channel", limit: 2 }]);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: true,
-      data: [
-        {
-          id: 35,
-          date: 1_800_000_200,
-          text: "latest pin",
-          chatId: "2139391239",
-        },
-      ],
-    });
+    expect(JSON.parse(harness.stdout.join(""))).toEqual([
+      {
+        id: 35,
+        date: 1_800_000_200,
+        text: "latest pin",
+        chatId: "2139391239",
+      },
+    ]);
   });
 
   test("auth login uses QR by default and stores the session file", async () => {
@@ -801,8 +773,8 @@ describe("firetg cli", () => {
     expect(prompts).toEqual(["API ID: ", "API hash: "]);
     expect(stderr.join("")).toContain("tg://login?token=dG9rZW4");
     expect(JSON.parse(stdout.join(""))).toEqual({
-      ok: true,
-      data: { configPath, sessionPath },
+      configPath,
+      sessionPath,
     });
     expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({
       apiId: 123,
@@ -819,6 +791,7 @@ describe("firetg cli", () => {
     const prompts: string[] = [];
     const answers = ["123", "hash", "79886504271", "12345", "hunter2"];
     const configHome = await mkdtemp(join(tmpdir(), "firetg-test-"));
+    const configPath = join(configHome, "firetg", "config.json");
     const sessionPath = join(configHome, "firetg", "session");
 
     const exitCode = await runCli(["auth", "login", "--phone"], {
@@ -857,7 +830,7 @@ describe("firetg cli", () => {
     expect(await readFile(sessionPath, "utf8")).toBe(
       "session:+79886504271:12345:hunter2\n",
     );
-    expect(JSON.parse(stdout.join("")).ok).toBe(true);
+    expect(JSON.parse(stdout.join(""))).toEqual({ configPath, sessionPath });
     expect(stderr.join("")).toBe("");
   });
 
@@ -873,8 +846,7 @@ describe("firetg cli", () => {
 
     expect(exitCode).toBe(0);
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: true,
-      data: { sessionPath },
+      sessionPath,
     });
     await expect(readFile(sessionPath, "utf8")).rejects.toThrow();
     expect(harness.stderr.join("")).toBe("");
