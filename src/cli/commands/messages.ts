@@ -65,6 +65,108 @@ export const messagesListCommand: CommandSpec = {
   },
 };
 
+export const messagesSearchCommand: CommandSpec = {
+  id: "messages.search",
+  usage: "messages search --chat <peer> (--hashtag <tag> | --reply-to <id> --from <peer[,peer...]>) [--limit <n>]",
+  help: {
+    summary: "Search messages in a scoped stream",
+    description:
+      "Searches one chat by hashtag, or reads replies to one message from selected senders.",
+    options: [
+      {
+        name: "--chat",
+        value: "<peer>",
+        summary: "Chat, username, id, or peer alias",
+        required: true,
+      },
+      {
+        name: "--hashtag",
+        value: "<tag>",
+        summary: "Hashtag to search for, with or without #",
+      },
+      {
+        name: "--reply-to",
+        value: "<id>",
+        summary: "Message id whose replies should be searched",
+      },
+      {
+        name: "--from",
+        value: "<peer[,peer...]>",
+        summary: "Reply sender username or id; comma-separated for multiple senders",
+      },
+      {
+        name: "--limit",
+        value: "<n>",
+        summary: "Maximum messages to return",
+        defaultValue: "100 for hashtags, 50 for replies",
+      },
+    ],
+    examples: [
+      {
+        command:
+          'firetg messages search --chat launch-team --hashtag "#deploy"',
+        summary: "Find deploy-tagged messages",
+      },
+      {
+        command:
+          "firetg messages search --chat launch-team --reply-to 101 --from 42,alice",
+        summary: "Find replies to one message from selected senders",
+      },
+    ],
+    aliases: ["messages:search"],
+  },
+  matches: (parsed) =>
+    matchesScopedCommand(parsed, "messages", "search") ||
+    parsed.command === "messages:search",
+  async run({ parsed, context }) {
+    const chat = parsed.flags.get("chat")?.trim();
+    const hashtag = normalizeHashtag(parsed.flags.get("hashtag"));
+    const replyTo = readRequiredPositiveInt(parsed.flags.get("reply-to"));
+    const from = readCommaSeparated(parsed.flags.get("from"));
+
+    if (!chat || (hashtag && replyTo !== undefined) || (!hashtag && replyTo === undefined)) {
+      writeError(
+        context,
+        "INPUT_ERROR",
+        "messages search requires --chat plus either --hashtag or --reply-to with --from",
+      );
+      return 1;
+    }
+
+    if (replyTo !== undefined && from.length === 0) {
+      writeError(
+        context,
+        "INPUT_ERROR",
+        "messages search requires --from when using --reply-to",
+      );
+      return 1;
+    }
+
+    return runWithTelegram(context, async (telegram) => {
+      if (replyTo !== undefined) {
+        writeJson(context, true, {
+          data: await telegram.listReplies({
+            chat,
+            messageId: replyTo,
+            from,
+            limit: readPositiveInt(parsed.flags, "limit", 50),
+          }),
+        });
+        return 0;
+      }
+
+      writeJson(context, true, {
+        data: await telegram.listMessages({
+          chat,
+          search: hashtag,
+          limit: readPositiveInt(parsed.flags, "limit", 100),
+        }),
+      });
+      return 0;
+    });
+  },
+};
+
 export const messagesPinnedCommand: CommandSpec = {
   id: "messages.pinned",
   usage: "messages pinned --chat <peer> [--limit <n>]",
@@ -116,3 +218,24 @@ export const messagesPinnedCommand: CommandSpec = {
     });
   },
 };
+
+function normalizeHashtag(value?: string): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+
+  return trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+}
+
+function readCommaSeparated(value?: string): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function readRequiredPositiveInt(value?: string): number | undefined {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return undefined;
+
+  return parsed;
+}

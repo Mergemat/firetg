@@ -52,6 +52,8 @@ firetg messages send --username telegram --text "hello"
 firetg messages send --id 116040563 --text "hello"
 firetg messages list --chat me --limit 20
 firetg messages list --chat me --search deploy --limit 10
+firetg messages search --chat launch-team --hashtag "#deploy" --limit 100
+firetg messages search --chat launch-team --reply-to 101 --from 42,alice --limit 50
 
 firetg folders list
 firetg dialogs list --folder 1 --limit 20
@@ -68,6 +70,7 @@ firetg channels view --help
 firetg channels messages --help
 firetg channels pinned --help
 firetg messages list --help
+firetg messages search --help
 ```
 
 ## Output
