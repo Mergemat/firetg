@@ -177,21 +177,31 @@ async function loginWithPhone(telegram: FireTgClient, context: CliContext) {
 }
 
 function loginWithQr(telegram: FireTgClient, context: CliContext) {
+  let previousQrLineCount = 0;
+
   return telegram.login({
     mode: "qr",
     qrCode: async ({ token, expires }) => {
       const url = `tg://login?token=${token.toString("base64url")}`;
-      context.io.stderr(
-        `Scan this QR code in Telegram. Expires at ${new Date(
-          expires * 1000,
-        ).toISOString()}.\n${renderQr(url)}\n${url}\n`,
-      );
+      const qrPrompt = `Scan this QR code in Telegram. Expires at ${new Date(
+        expires * 1000,
+      ).toISOString()}.\n${renderQr(url)}\n${url}\n`;
+      const clearPreviousQr =
+        previousQrLineCount > 0 ? `\x1b[${previousQrLineCount}A\x1b[0J` : "";
+
+      context.io.stderr(`${clearPreviousQr}${qrPrompt}`);
+      previousQrLineCount = countTerminalLines(qrPrompt);
     },
     password: (hint) =>
       context.io.question(
         hint ? `2FA password (${hint}): ` : "2FA password: ",
       ),
   });
+}
+
+function countTerminalLines(text: string): number {
+  const newlineCount = text.match(/\n/g)?.length ?? 0;
+  return text.endsWith("\n") ? newlineCount : newlineCount + 1;
 }
 
 function normalizePhoneNumber(value: string): string {

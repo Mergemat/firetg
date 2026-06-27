@@ -929,6 +929,46 @@ describe("firetg cli", () => {
     expect((await stat(sessionPath)).mode & 0o777).toBe(0o600);
   });
 
+  test("auth login replaces the previous QR code when Telegram renews it", async () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const answers = ["123", "hash"];
+    const configHome = await mkdtemp(join(tmpdir(), "firetg-test-"));
+
+    const exitCode = await runCli(["auth", "login"], {
+      env: {
+        XDG_CONFIG_HOME: configHome,
+      },
+      io: {
+        stdout: (text) => stdout.push(text),
+        stderr: (text) => stderr.push(text),
+        question: async () => answers.shift() ?? "",
+      },
+      createTelegram: async () => fakeTelegram({
+        login: async (params) => {
+          if (params.mode !== "qr") throw new Error("Expected QR auth");
+
+          await params.qrCode({
+            token: Buffer.from("expired"),
+            expires: 1_800_000_000,
+          });
+          await params.qrCode({
+            token: Buffer.from("renewed"),
+            expires: 1_800_000_030,
+          });
+
+          return { session: "qr-session" };
+        },
+      }),
+    });
+
+    expect(exitCode).toBe(0);
+    expect(stderr).toHaveLength(2);
+    expect(stderr[0]).toContain("tg://login?token=ZXhwaXJlZA");
+    expect(stderr[1]).toMatch(/^\x1b\[\d+A\x1b\[0J/);
+    expect(stderr[1]).toContain("tg://login?token=cmVuZXdlZA");
+  });
+
   test("auth login --phone normalizes phone and prompts after code delivery", async () => {
     const stdout: string[] = [];
     const stderr: string[] = [];
