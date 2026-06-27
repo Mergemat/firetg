@@ -39,6 +39,7 @@ function fakeTelegram(overrides: Partial<FireTgClient> = {}): FireTgClient {
     listFolders: async () => [],
     listDialogs: async () => [],
     listMessages: async () => [],
+    listReplies: async () => [],
     listPinnedMessages: async () => [],
     ...overrides,
   };
@@ -676,6 +677,149 @@ describe("firetg cli", () => {
         outgoing: false,
       },
     ]);
+  });
+
+  test("messages search emits hashtag matches", async () => {
+    const harness = createHarness();
+    const calls: Array<{
+      chat: string;
+      limit: number;
+      search?: string;
+    }> = [];
+    const { env } = await createStoredAuthEnv();
+
+    const exitCode = await runCli(
+      [
+        "messages",
+        "search",
+        "--chat",
+        "launch-team",
+        "--hashtag",
+        "#deploy",
+        "--limit",
+        "50",
+      ],
+      {
+        env,
+        io: harness.io,
+        createTelegram: async () => fakeTelegram({
+          listMessages: async (options) => {
+            calls.push(options);
+            return [
+              {
+                id: 101,
+                date: 1_800_000_101,
+                text: "Ship it #deploy",
+                senderId: "7",
+                chatId: "100",
+              },
+            ];
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([
+      {
+        chat: "launch-team",
+        limit: 50,
+        search: "#deploy",
+      },
+    ]);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual([
+      {
+        id: 101,
+        date: 1_800_000_101,
+        text: "Ship it #deploy",
+        senderId: "7",
+        chatId: "100",
+      },
+    ]);
+  });
+
+  test("messages search emits replies from selected senders", async () => {
+    const harness = createHarness();
+    const calls: Array<{
+      chat: string;
+      messageId: number;
+      from: string[];
+      limit: number;
+    }> = [];
+    const { env } = await createStoredAuthEnv();
+
+    const exitCode = await runCli(
+      [
+        "messages",
+        "search",
+        "--chat",
+        "launch-team",
+        "--reply-to",
+        "101",
+        "--from",
+        "42,alice",
+        "--limit",
+        "10",
+      ],
+      {
+        env,
+        io: harness.io,
+        createTelegram: async () => fakeTelegram({
+          listReplies: async (options) => {
+            calls.push(options);
+            return [
+              {
+                id: 102,
+                date: 1_800_000_102,
+                text: "confirmed",
+                senderId: "42",
+                chatId: "100",
+                replyToMessageId: 101,
+              },
+            ];
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(calls).toEqual([
+      {
+        chat: "launch-team",
+        messageId: 101,
+        from: ["42", "alice"],
+        limit: 10,
+      },
+    ]);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual([
+      {
+        id: 102,
+        date: 1_800_000_102,
+        text: "confirmed",
+        senderId: "42",
+        chatId: "100",
+        replyToMessageId: 101,
+      },
+    ]);
+  });
+
+  test("messages search validates required flags before loading config", async () => {
+    const harness = createHarness();
+
+    const exitCode = await runCli(["messages", "search", "--chat", "me"], {
+      env: {},
+      io: harness.io,
+    });
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: false,
+      error: {
+        code: "INPUT_ERROR",
+        message:
+          "messages search requires --chat plus either --hashtag or --reply-to with --from",
+      },
+    });
   });
 
   test("messages list validates --chat before loading config", async () => {
