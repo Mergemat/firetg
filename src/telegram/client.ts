@@ -10,6 +10,7 @@ import {
 } from "./dialogs";
 import { listTelegramFolders } from "./folders";
 import {
+  listTelegramReplies,
   listTelegramMessages,
   listTelegramPinnedMessages,
   sendTelegramMessage,
@@ -53,6 +54,7 @@ export async function createTeleprotoClient(
       listTelegramFolders(await dialogSource.getDialogFilters()),
     listDialogs: (options) => listDialogSummaries(dialogSource, options),
     listMessages: (options) => listTelegramMessages(client, options),
+    listReplies: (options) => listTelegramReplies(client, options),
     listPinnedMessages: (options) => listTelegramPinnedMessages(client, options),
     disconnect: async () => {
       await client.destroy();

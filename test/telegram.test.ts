@@ -11,6 +11,7 @@ import { getChannelDetails } from "../src/telegram/channels";
 import {
   listTelegramMessages,
   listTelegramPinnedMessages,
+  listTelegramReplies,
   sendTelegramMessage,
 } from "../src/telegram/messages";
 
@@ -323,6 +324,158 @@ describe("telegram message listing", () => {
     ).resolves.toEqual([
       { id: 12, date: 1_800_000_012, text: "latest pin" },
       { id: 10, date: 1_800_000_010, text: "first pin" },
+    ]);
+  });
+
+  test("reply search includes replies from selected senders", async () => {
+    const knownUser = new Api.User({
+      id: bigInt(42),
+      accessHash: bigInt(420),
+      firstName: "Ops",
+      lastName: "Lead",
+    });
+    const calls: Array<{
+      chat: string;
+      params: {
+        limit: number;
+        search?: string;
+        replyTo?: number;
+        fromUser?: string | Api.User;
+      };
+    }> = [];
+    const client = {
+      getEntity: async (entity: string) => {
+        expect(entity).toBe("42");
+        return knownUser;
+      },
+      getMessages: async (
+        chat: string,
+        params: {
+          limit: number;
+          search?: string;
+          replyTo?: number;
+          fromUser?: string | Api.User;
+        },
+      ) => {
+        calls.push({ chat, params });
+
+        if (params.replyTo === 10 && params.fromUser === knownUser) {
+          return [
+            new Api.Message({
+              id: 12,
+              date: 1_800_000_012,
+              message: "confirmed",
+              fromId: new Api.PeerUser({ userId: bigInt(42) }),
+              peerId: new Api.PeerChannel({ channelId: bigInt(100) }),
+              replyTo: new Api.MessageReplyHeader({ replyToMsgId: 10 }),
+            }),
+          ];
+        }
+
+        return [];
+      },
+    };
+
+    await expect(
+      listTelegramReplies(client as never, {
+        chat: "launch-team",
+        messageId: 10,
+        from: ["42", "alice"],
+        limit: 5,
+      }),
+    ).resolves.toEqual([
+      {
+        id: 12,
+        date: 1_800_000_012,
+        text: "confirmed",
+        senderId: "42",
+        chatId: "100",
+        replyToMessageId: 10,
+      },
+    ]);
+    expect(calls).toEqual([
+      {
+        chat: "launch-team",
+        params: { limit: 5, replyTo: 10, fromUser: knownUser },
+      },
+      {
+        chat: "launch-team",
+        params: { limit: 5, replyTo: 10, fromUser: "alice" },
+      },
+    ]);
+  });
+
+  test("reply search falls back to sender history when reply threads are unavailable", async () => {
+    const calls: Array<{
+      chat: string;
+      params: {
+        limit: number;
+        search?: string;
+        replyTo?: number;
+        fromUser?: string;
+      };
+    }> = [];
+    const client = {
+      getMessages: async (
+        chat: string,
+        params: {
+          limit: number;
+          search?: string;
+          replyTo?: number;
+          fromUser?: string;
+        },
+      ) => {
+        calls.push({ chat, params });
+
+        if (params.replyTo === 10) {
+          throw new Error("PEER_ID_INVALID");
+        }
+
+        if (params.fromUser === "alice") {
+          return [
+            new Api.Message({
+              id: 15,
+              date: 1_800_000_015,
+              message: "unrelated",
+              replyTo: new Api.MessageReplyHeader({ replyToMsgId: 9 }),
+            }),
+            new Api.Message({
+              id: 12,
+              date: 1_800_000_012,
+              message: "confirmed",
+              replyTo: new Api.MessageReplyHeader({ replyToMsgId: 10 }),
+            }),
+          ];
+        }
+
+        return [];
+      },
+    };
+
+    await expect(
+      listTelegramReplies(client as never, {
+        chat: "launch-team",
+        messageId: 10,
+        from: ["alice"],
+        limit: 50,
+      }),
+    ).resolves.toEqual([
+      {
+        id: 12,
+        date: 1_800_000_012,
+        text: "confirmed",
+        replyToMessageId: 10,
+      },
+    ]);
+    expect(calls).toEqual([
+      {
+        chat: "launch-team",
+        params: { limit: 50, replyTo: 10, fromUser: "alice" },
+      },
+      {
+        chat: "launch-team",
+        params: { limit: 50, fromUser: "alice" },
+      },
     ]);
   });
 });

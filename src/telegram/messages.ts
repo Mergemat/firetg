@@ -18,10 +18,7 @@ async function resolveMessageRecipient(
   client: TelegramClient,
   to: string,
 ): Promise<string | Api.User> {
-  const normalized = normalizeUser(to);
-  if (!isUserId(normalized)) return to;
-
-  return getKnownUserEntityById(client, normalized);
+  return resolveMessageUser(client, to);
 }
 
 export async function listTelegramMessages(
@@ -55,6 +52,25 @@ export async function listTelegramPinnedMessages(
   return serializeMessages(messages);
 }
 
+export async function listTelegramReplies(
+  client: TelegramClient,
+  options: {
+    chat: string;
+    messageId: number;
+    from: string[];
+    limit: number;
+  },
+): Promise<MessageSummary[]> {
+  const replies = await listRepliesFromSenders(client, {
+    chat: options.chat,
+    messageId: options.messageId,
+    senders: options.from,
+    limit: options.limit,
+  });
+
+  return serializeMessages(replies);
+}
+
 function serializeSentMessage(message: Api.Message): SentMessage {
   return {
     id: Number(message.id),
@@ -65,22 +81,116 @@ function serializeSentMessage(message: Api.Message): SentMessage {
 
 function serializeMessage(message: Api.Message): MessageSummary {
   const media = serializeMessageMedia(message);
+  const senderId = peerIdToString(message.fromId);
+  const chatId = peerIdToString(message.peerId);
   const summary: MessageSummary = {
     id: Number(message.id),
     date: message.date,
     text: message.message,
-    senderId: peerIdToString(message.fromId),
-    chatId: peerIdToString(message.peerId),
-    outgoing: message.out,
   };
+  const replyToMessageId = messageReplyToMessageId(message);
 
   if (media) summary.media = media;
+  if (senderId !== undefined) summary.senderId = senderId;
+  if (chatId !== undefined) summary.chatId = chatId;
+  if (message.out !== undefined) summary.outgoing = message.out;
+  if (replyToMessageId !== undefined) {
+    summary.replyToMessageId = replyToMessageId;
+  }
 
   return summary;
 }
 
 function serializeMessages(messages: Api.Message[]): MessageSummary[] {
-  return [...messages].sort(compareMessagesNewestFirst).map(serializeMessage);
+  return sortMessagesNewestFirst(messages).map(serializeMessage);
+}
+
+function sortMessagesNewestFirst(messages: Api.Message[]): Api.Message[] {
+  return [...messages].sort(compareMessagesNewestFirst);
+}
+
+async function listRepliesFromSenders(
+  client: TelegramClient,
+  options: {
+    chat: string;
+    messageId: number;
+    senders: string[];
+    limit: number;
+  },
+): Promise<Api.Message[]> {
+  const senders = await Promise.all(
+    options.senders.map((sender) => resolveMessageUser(client, sender)),
+  );
+  const repliesBySender = await Promise.all(
+    senders.map((sender) =>
+      listRepliesFromSender(client, {
+        chat: options.chat,
+        messageId: options.messageId,
+        sender,
+        limit: options.limit,
+      }),
+    ),
+  );
+
+  return uniqueMessages(repliesBySender.flat());
+}
+
+async function listRepliesFromSender(
+  client: TelegramClient,
+  options: {
+    chat: string;
+    messageId: number;
+    sender: string | Api.User;
+    limit: number;
+  },
+): Promise<Api.Message[]> {
+  try {
+    return await client.getMessages(options.chat, {
+      limit: options.limit,
+      replyTo: options.messageId,
+      fromUser: options.sender,
+    });
+  } catch (error) {
+    if (!isPeerIdInvalid(error)) throw error;
+  }
+
+  const senderMessages = await client.getMessages(options.chat, {
+    limit: options.limit,
+    fromUser: options.sender,
+  });
+
+  return senderMessages.filter(
+    (message) => messageReplyToMessageId(message) === options.messageId,
+  );
+}
+
+async function resolveMessageUser(
+  client: TelegramClient,
+  user: string,
+): Promise<string | Api.User> {
+  const normalized = normalizeUser(user);
+  if (!isUserId(normalized)) return normalized;
+
+  return getKnownUserEntityById(client, normalized);
+}
+
+function uniqueMessages(messages: Api.Message[]): Api.Message[] {
+  const seen = new Set<number>();
+  const unique: Api.Message[] = [];
+
+  for (const message of messages) {
+    const id = Number(message.id);
+    if (seen.has(id)) continue;
+
+    seen.add(id);
+    unique.push(message);
+  }
+
+  return unique;
+}
+
+function isPeerIdInvalid(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("PEER_ID_INVALID");
 }
 
 function compareMessagesNewestFirst(left: Api.Message, right: Api.Message): number {
@@ -95,6 +205,14 @@ function peerIdToString(peer?: Api.TypePeer): string | undefined {
   if (peer instanceof Api.PeerUser) return peer.userId.toString();
   if (peer instanceof Api.PeerChat) return peer.chatId.toString();
   if (peer instanceof Api.PeerChannel) return peer.channelId.toString();
+  return undefined;
+}
+
+function messageReplyToMessageId(message: Api.Message): number | undefined {
+  if (message.replyTo instanceof Api.MessageReplyHeader) {
+    return message.replyTo.replyToMsgId;
+  }
+
   return undefined;
 }
 

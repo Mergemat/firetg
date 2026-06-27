@@ -49,6 +49,7 @@ export type MessageSummary = {
   media?: MessageMediaSummary;
   senderId?: string;
   chatId?: string;
+  replyToMessageId?: number;
   outgoing?: boolean;
 };
 
@@ -101,6 +102,12 @@ export type FireTgClient = {
     chat: string;
     limit: number;
     search?: string;
+  }) => Promise<MessageSummary[]>;
+  listReplies: (options: {
+    chat: string;
+    messageId: number;
+    from: string[];
+    limit: number;
   }) => Promise<MessageSummary[]>;
   listPinnedMessages: (options: {
     chat: string;
