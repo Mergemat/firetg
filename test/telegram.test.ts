@@ -179,6 +179,48 @@ describe("telegram message sending", () => {
     });
     expect(sentEntity).toBe(user);
   });
+
+  test("attachments are sent through sendFile", async () => {
+    let textSent = false;
+    let sentEntity: unknown;
+    let sentParams: unknown;
+
+    const client = {
+      sendMessage: async () => {
+        textSent = true;
+        throw new Error("attachments should not use sendMessage");
+      },
+      sendFile: async (entity: unknown, params: unknown) => {
+        sentEntity = entity;
+        sentParams = params;
+        return new Api.Message({
+          id: 10,
+          date: 1_800_000_003,
+          message: "caption",
+        });
+      },
+    };
+
+    await expect(
+      sendTelegramMessage(client as never, "@telegram", {
+        text: "caption",
+        attachment: "/tmp/photo.jpg",
+        forceDocument: true,
+      }),
+    ).resolves.toEqual({
+      id: 10,
+      date: 1_800_000_003,
+      text: "caption",
+    });
+    expect(textSent).toBe(false);
+    expect(sentEntity).toBe("telegram");
+    expect(sentParams).toEqual({
+      file: "/tmp/photo.jpg",
+      caption: "caption",
+      forceDocument: true,
+      parseMode: undefined,
+    });
+  });
 });
 
 describe("telegram message listing", () => {

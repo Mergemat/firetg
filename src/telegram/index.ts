@@ -15,5 +15,6 @@ export type {
   FolderSummary,
   LoginParams,
   MessageSummary,
+  SendMessageInput,
   SentMessage,
 } from "./types";
