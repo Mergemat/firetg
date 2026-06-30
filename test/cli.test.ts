@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli";
 import { commandModules } from "../src/cli/commands";
-import type { FireTgClient } from "../src/telegram";
+import type { FireTgClient, SendMessageInput } from "../src/telegram";
 
 function createHarness() {
   const stdout: string[] = [];
@@ -454,7 +454,7 @@ describe("firetg cli", () => {
 
   test("messages send accepts a username destination", async () => {
     const harness = createHarness();
-    const sent: Array<{ to: string; text: string }> = [];
+    const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
     const { env } = await createStoredAuthEnv();
 
     const exitCode = await runCli(
@@ -463,16 +463,20 @@ describe("firetg cli", () => {
         env,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
-          sendMessage: async (to, text) => {
-            sent.push({ to, text });
-            return { id: 7, date: 1_800_000_000, text };
+          sendMessage: async (to, message) => {
+            sent.push({ to, message });
+            return {
+              id: 7,
+              date: 1_800_000_000,
+              text: typeof message === "string" ? message : message.text,
+            };
           },
         }),
       },
     );
 
     expect(exitCode).toBe(0);
-    expect(sent).toEqual([{ to: "telegram", text: "hello" }]);
+    expect(sent).toEqual([{ to: "telegram", message: "hello" }]);
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
       id: 7,
       date: 1_800_000_000,
@@ -482,7 +486,7 @@ describe("firetg cli", () => {
 
   test("messages send accepts a user id destination", async () => {
     const harness = createHarness();
-    const sent: Array<{ to: string; text: string }> = [];
+    const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
     const { env } = await createStoredAuthEnv();
 
     const exitCode = await runCli(
@@ -491,21 +495,117 @@ describe("firetg cli", () => {
         env,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
-          sendMessage: async (to, text) => {
-            sent.push({ to, text });
-            return { id: 8, date: 1_800_000_001, text };
+          sendMessage: async (to, message) => {
+            sent.push({ to, message });
+            return {
+              id: 8,
+              date: 1_800_000_001,
+              text: typeof message === "string" ? message : message.text,
+            };
           },
         }),
       },
     );
 
     expect(exitCode).toBe(0);
-    expect(sent).toEqual([{ to: "123456789", text: "hello" }]);
+    expect(sent).toEqual([{ to: "123456789", message: "hello" }]);
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
       id: 8,
       date: 1_800_000_001,
       text: "hello",
     });
+  });
+
+  test("messages send accepts a file attachment with a caption", async () => {
+    const harness = createHarness();
+    const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
+    const { env } = await createStoredAuthEnv();
+    const directory = await mkdtemp(join(tmpdir(), "firetg-attachment-"));
+    const attachment = join(directory, "photo.jpg");
+    await writeFile(attachment, "image");
+
+    const exitCode = await runCli(
+      [
+        "messages",
+        "send",
+        "--username",
+        "telegram",
+        "--file",
+        attachment,
+        "--text",
+        "caption",
+      ],
+      {
+        env,
+        io: harness.io,
+        createTelegram: async () => fakeTelegram({
+          sendMessage: async (to, message) => {
+            sent.push({ to, message });
+            return { id: 9, date: 1_800_000_002, text: "caption" };
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(sent).toEqual([
+      {
+        to: "telegram",
+        message: {
+          text: "caption",
+          attachment,
+          forceDocument: false,
+        },
+      },
+    ]);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      id: 9,
+      date: 1_800_000_002,
+      text: "caption",
+    });
+  });
+
+  test("messages send accepts the attachment alias and document mode", async () => {
+    const harness = createHarness();
+    const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
+    const { env } = await createStoredAuthEnv();
+    const directory = await mkdtemp(join(tmpdir(), "firetg-attachment-"));
+    const attachment = join(directory, "report.pdf");
+    await writeFile(attachment, "pdf");
+
+    const exitCode = await runCli(
+      [
+        "messages",
+        "send",
+        "--username",
+        "telegram",
+        "--attachment",
+        attachment,
+        "--document",
+      ],
+      {
+        env,
+        io: harness.io,
+        createTelegram: async () => fakeTelegram({
+          sendMessage: async (to, message) => {
+            sent.push({ to, message });
+            return { id: 10, date: 1_800_000_003 };
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(sent).toEqual([
+      {
+        to: "telegram",
+        message: {
+          text: undefined,
+          attachment,
+          forceDocument: true,
+        },
+      },
+    ]);
   });
 
   test("messages send rejects ambiguous destination flags before loading config", async () => {
@@ -551,7 +651,59 @@ describe("firetg cli", () => {
       ok: false,
       error: {
         code: "INPUT_ERROR",
-        message: "messages send requires --username or --id plus --text",
+        message: "messages send requires --username or --id plus --text or --file",
+      },
+    });
+  });
+
+  test("messages send rejects ambiguous attachment flags before loading config", async () => {
+    const harness = createHarness();
+
+    const exitCode = await runCli(
+      [
+        "messages",
+        "send",
+        "--username",
+        "telegram",
+        "--file",
+        "a.jpg",
+        "--attachment",
+        "b.jpg",
+      ],
+      {
+        env: {},
+        io: harness.io,
+      },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: false,
+      error: {
+        code: "INPUT_ERROR",
+        message: "messages send accepts either --file or --attachment, not both",
+      },
+    });
+  });
+
+  test("messages send rejects missing attachment files before loading config", async () => {
+    const harness = createHarness();
+    const missing = join(tmpdir(), "firetg-missing-attachment.jpg");
+
+    const exitCode = await runCli(
+      ["messages", "send", "--username", "telegram", "--file", missing],
+      {
+        env: {},
+        io: harness.io,
+      },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: false,
+      error: {
+        code: "INPUT_ERROR",
+        message: `attachment file not found: ${missing}`,
       },
     });
   });
