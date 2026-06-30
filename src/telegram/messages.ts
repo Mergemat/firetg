@@ -1,17 +1,32 @@
 import { Api, type TelegramClient } from "teleproto";
-import type { MessageMediaSummary, MessageSummary, SentMessage } from "./types";
+import type {
+  MessageMediaSummary,
+  MessageSummary,
+  SendMessageInput,
+  SentMessage,
+} from "./types";
 import { getKnownUserEntityById, isUserId, normalizeUser } from "./users";
 
 export async function sendTelegramMessage(
   client: TelegramClient,
   to: string,
-  text: string,
+  message: string | SendMessageInput,
 ): Promise<SentMessage> {
   const entity = await resolveMessageRecipient(client, to);
+  const input = normalizeSendMessageInput(message);
+  const sentMessage = input.attachment
+    ? await client.sendFile(entity, {
+        file: input.attachment,
+        caption: input.text,
+        forceDocument: input.forceDocument ?? false,
+        parseMode: undefined,
+      })
+    : await client.sendMessage(entity, {
+        message: input.text,
+        parseMode: undefined,
+      });
 
-  return serializeSentMessage(
-    await client.sendMessage(entity, { message: text, parseMode: undefined }),
-  );
+  return serializeSentMessage(sentMessage);
 }
 
 async function resolveMessageRecipient(
@@ -72,11 +87,21 @@ export async function listTelegramReplies(
 }
 
 function serializeSentMessage(message: Api.Message): SentMessage {
-  return {
+  const media = serializeMessageMedia(message);
+  const summary: SentMessage = {
     id: Number(message.id),
     date: message.date,
     text: message.message,
   };
+
+  if (media) summary.media = media;
+  return summary;
+}
+
+function normalizeSendMessageInput(
+  message: string | SendMessageInput,
+): SendMessageInput {
+  return typeof message === "string" ? { text: message } : message;
 }
 
 function serializeMessage(message: Api.Message): MessageSummary {

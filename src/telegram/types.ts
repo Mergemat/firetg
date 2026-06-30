@@ -22,6 +22,13 @@ export type SentMessage = {
   id?: number;
   date?: number;
   text?: string;
+  media?: MessageMediaSummary;
+};
+
+export type SendMessageInput = {
+  text?: string;
+  attachment?: string;
+  forceDocument?: boolean;
 };
 
 export type DialogSummary = {
@@ -95,7 +102,10 @@ export type FireTgClient = {
   getMe: () => Promise<Account>;
   getProfile: (user: string) => Promise<Profile>;
   getChannel: (channel: string) => Promise<ChannelDetails>;
-  sendMessage: (to: string, text: string) => Promise<SentMessage>;
+  sendMessage: (
+    to: string,
+    message: string | SendMessageInput,
+  ) => Promise<SentMessage>;
   listFolders: () => Promise<FolderSummary[]>;
   listDialogs: (options: { limit: number; folder?: number }) => Promise<DialogSummary[]>;
   listMessages: (options: {
