@@ -1,6 +1,10 @@
 import type { CliContext } from "./types";
 
-export type ErrorCode = "CONFIG_ERROR" | "INPUT_ERROR" | "TELEGRAM_ERROR";
+export type ErrorCode =
+  | "CONFIG_ERROR"
+  | "INPUT_ERROR"
+  | "RATE_LIMITED"
+  | "TELEGRAM_ERROR";
 
 export function writeJson(
   context: CliContext,
@@ -14,11 +18,13 @@ export function writeError(
   context: CliContext,
   code: ErrorCode,
   message: string,
+  details: Record<string, unknown> = {},
 ) {
   writeJson(context, false, {
     error: {
       code,
       message,
+      ...details,
     },
   });
 }

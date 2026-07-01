@@ -7,6 +7,11 @@ import type { CliContext } from "../types";
 export async function runWithTelegram(
   context: CliContext,
   handler: (telegram: FireTgClient) => Promise<number>,
+  options: {
+    onError?: (
+      error: unknown,
+    ) => Promise<number | undefined> | number | undefined;
+  } = {},
 ): Promise<number> {
   const configResult = await readTelegramConfig(context.env);
 
@@ -27,11 +32,18 @@ export async function runWithTelegram(
     );
     return await handler(telegram);
   } catch (error) {
+    const handled = await options.onError?.(error);
+    if (handled !== undefined) return handled;
+
     writeError(context, "TELEGRAM_ERROR", errorMessage(error));
     return 2;
   } finally {
     await telegram?.disconnect?.();
   }
+}
+
+export function commandNow(context: CliContext): Date {
+  return context.now?.() ?? new Date();
 }
 
 export function matchesScopedCommand(

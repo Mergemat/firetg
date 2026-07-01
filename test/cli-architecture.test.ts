@@ -18,7 +18,14 @@ describe("cli architecture", () => {
       {
         scope: "profiles",
         summary: "Telegram account and user profiles",
-        commands: ["profiles.me", "profiles.view"],
+        commands: [
+          "profiles.me",
+          "profiles.get",
+          "profiles.resolve",
+          "profiles.status",
+          "profiles.queue",
+          "profiles.flood",
+        ],
       },
       {
         scope: "channels",
@@ -55,7 +62,11 @@ describe("cli architecture", () => {
       "auth.login",
       "auth.logout",
       "profiles.me",
-      "profiles.view",
+      "profiles.get",
+      "profiles.resolve",
+      "profiles.status",
+      "profiles.queue",
+      "profiles.flood",
       "channels.view",
       "channels.messages",
       "channels.pinned",

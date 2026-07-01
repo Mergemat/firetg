@@ -17,7 +17,11 @@ Owns Telegram account authentication state.
 Represents the currently authenticated Telegram account.
 
 - `profiles me` returns the current account profile.
-- `profiles view --username <username>` returns a public user profile, including the Telegram bio/description when available.
+- `profiles get <username|user-id>` returns a public user profile, including the Telegram bio/description when available.
+- `profiles queue --username <username[,username...]>` stores usernames for throttled profile resolution.
+- `profiles resolve <username...> --limit <n>` queues optional usernames, processes pending username resolves, and records Telegram flood waits locally.
+- `profiles status` shows queued, resolved, failed, and saved flood state for username resolution.
+- `profiles flood` shows or clears the saved username resolve flood state.
 - Use Profile for account identity reads, not Auth.
 
 ### Channel
