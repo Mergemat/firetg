@@ -40,8 +40,10 @@ The Telegram session is stored in `~/.config/firetg/session`.
 
 ```bash
 firetg profiles me
-firetg profiles view --username telegram
-firetg profiles view --id 116040563
+firetg profiles get telegram
+firetg profiles get 116040563
+firetg profiles resolve alice bob --limit 1
+firetg profiles status
 
 firetg channels view --username telegram
 firetg channels view --id 100

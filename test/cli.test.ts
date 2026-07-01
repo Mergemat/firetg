@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "../src/cli";
 import { commandModules } from "../src/cli/commands";
+import { resolveStorePaths } from "../src/localStore";
 import type { FireTgClient, SendMessageInput } from "../src/telegram";
 
 function createHarness() {
@@ -102,7 +103,7 @@ describe("firetg cli", () => {
       expect(exitCode).toBe(0);
       expect(harness.stdout.join("")).toContain(`firetg ${module.scope}`);
       expect(harness.stdout.join("")).toContain("COMMANDS");
-      for (const command of module.commands) {
+      for (const command of module.commands.filter((item) => !item.hidden)) {
         expect(harness.stdout.join("")).toContain(`firetg ${command.usage}`);
       }
       expect(harness.stderr.join("")).toBe("");
@@ -287,6 +288,315 @@ describe("firetg cli", () => {
       id: "116040563",
       username: "clrdrv",
       firstName: "Kirill",
+    });
+  });
+
+  test("profiles get accepts a positional username", async () => {
+    const harness = createHarness();
+    const viewed: string[] = [];
+    const { env } = await createStoredAuthEnv();
+
+    const exitCode = await runCli(["profiles", "get", "firetg"], {
+      env,
+      io: harness.io,
+      createTelegram: async () => fakeTelegram({
+        getProfile: async (user) => {
+          viewed.push(user);
+          return {
+            id: "42",
+            username: "firetg",
+            firstName: "Fire",
+          };
+        },
+      }),
+    });
+
+    expect(exitCode).toBe(0);
+    expect(viewed).toEqual(["firetg"]);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      id: "42",
+      username: "firetg",
+      firstName: "Fire",
+    });
+  });
+
+  test("profiles view records username flood waits", async () => {
+    const harness = createHarness();
+    const { env } = await createStoredAuthEnv();
+    const now = new Date("2026-07-01T00:00:00.000Z");
+
+    const exitCode = await runCli(
+      ["profiles", "view", "--username", "PaninaOk"],
+      {
+        env,
+        io: harness.io,
+        now: () => now,
+        createTelegram: async () => fakeTelegram({
+          getProfile: async () => {
+            throw new Error(
+              "A wait of 53047 seconds is required (caused by contacts.ResolveUsername)",
+            );
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: false,
+      error: {
+        code: "RATE_LIMITED",
+        message:
+          "Telegram username resolves are blocked until 2026-07-01T14:44:07.000Z",
+        blockedUntil: "2026-07-01T14:44:07.000Z",
+        remainingSeconds: 53047,
+      },
+    });
+    expect(
+      JSON.parse(
+        await readFile(resolveStorePaths(env).resolver, "utf8"),
+      ).blockedUntil,
+    ).toBe("2026-07-01T14:44:07.000Z");
+  });
+
+  test("profiles view skips Telegram while username resolves are flood blocked", async () => {
+    const harness = createHarness();
+    const { env } = await createStoredAuthEnv();
+    await writeFile(
+      resolveStorePaths(env).resolver,
+      `${JSON.stringify({
+        version: 1,
+        blockedUntil: "2026-07-01T14:44:07.000Z",
+        queue: [],
+      })}\n`,
+    );
+    let created = false;
+
+    const exitCode = await runCli(
+      ["profiles", "view", "--username", "PaninaOk"],
+      {
+        env,
+        io: harness.io,
+        now: () => new Date("2026-07-01T00:00:00.000Z"),
+        createTelegram: async () => {
+          created = true;
+          return fakeTelegram();
+        },
+      },
+    );
+
+    expect(exitCode).toBe(2);
+    expect(created).toBe(false);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: false,
+      error: {
+        code: "RATE_LIMITED",
+        message:
+          "Telegram username resolves are blocked until 2026-07-01T14:44:07.000Z",
+        blockedUntil: "2026-07-01T14:44:07.000Z",
+        remainingSeconds: 53047,
+      },
+    });
+  });
+
+  test("profiles queue stores normalized usernames", async () => {
+    const harness = createHarness();
+    const { env } = await createStoredAuthEnv();
+
+    const exitCode = await runCli(
+      ["profiles", "queue", "--username", "@Alice,bob,Alice"],
+      {
+        env,
+        io: harness.io,
+        now: () => new Date("2026-07-01T00:00:00.000Z"),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(harness.stdout.join(""))).toMatchObject({
+      blocked: false,
+      pending: 2,
+      resolved: 0,
+      failed: 0,
+      enqueued: ["Alice", "bob"],
+      skipped: [],
+    });
+    expect(
+      JSON.parse(await readFile(resolveStorePaths(env).resolver, "utf8")).queue,
+    ).toMatchObject([
+      { username: "Alice", status: "pending", attempts: 0 },
+      { username: "bob", status: "pending", attempts: 0 },
+    ]);
+  });
+
+  test("profiles resolve processes queued usernames", async () => {
+    const harness = createHarness();
+    const { env } = await createStoredAuthEnv();
+    await runCli(["profiles", "queue", "--username", "alice,bob"], {
+      env,
+      io: createHarness().io,
+      now: () => new Date("2026-07-01T00:00:00.000Z"),
+    });
+
+    const exitCode = await runCli(["profiles", "resolve", "--limit", "1"], {
+      env,
+      io: harness.io,
+      now: () => new Date("2026-07-01T00:00:10.000Z"),
+      createTelegram: async () => fakeTelegram({
+        getProfile: async (username) => ({
+          id: username === "alice" ? "1" : "2",
+          username,
+          firstName: username,
+        }),
+      }),
+    });
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(harness.stdout.join(""))).toMatchObject({
+      blocked: false,
+      pending: 1,
+      resolved: 1,
+      failed: 0,
+      processed: [
+        {
+          username: "alice",
+          profile: {
+            id: "1",
+            username: "alice",
+            firstName: "alice",
+          },
+        },
+      ],
+      errors: [],
+    });
+    expect(
+      JSON.parse(await readFile(resolveStorePaths(env).resolver, "utf8")).queue,
+    ).toMatchObject([
+      {
+        username: "alice",
+        status: "resolved",
+        attempts: 1,
+        profile: { id: "1", username: "alice" },
+      },
+      { username: "bob", status: "pending", attempts: 0 },
+    ]);
+  });
+
+  test("profiles resolve can queue and process usernames in one command", async () => {
+    const harness = createHarness();
+    const { env } = await createStoredAuthEnv();
+
+    const exitCode = await runCli(
+      ["profiles", "resolve", "@alice", "bob", "--limit", "1"],
+      {
+        env,
+        io: harness.io,
+        now: () => new Date("2026-07-01T00:00:10.000Z"),
+        createTelegram: async () => fakeTelegram({
+          getProfile: async (username) => ({
+            id: "1",
+            username,
+            firstName: username,
+          }),
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(harness.stdout.join(""))).toMatchObject({
+      blocked: false,
+      pending: 1,
+      resolved: 1,
+      failed: 0,
+      enqueued: ["alice", "bob"],
+      skipped: [],
+      processed: [
+        {
+          username: "alice",
+          profile: {
+            id: "1",
+            username: "alice",
+            firstName: "alice",
+          },
+        },
+      ],
+      errors: [],
+    });
+  });
+
+  test("profiles status shows resolver state", async () => {
+    const harness = createHarness();
+    const { env } = await createStoredAuthEnv();
+    await runCli(["profiles", "queue", "--username", "alice"], {
+      env,
+      io: createHarness().io,
+      now: () => new Date("2026-07-01T00:00:00.000Z"),
+    });
+
+    const exitCode = await runCli(["profiles", "status"], {
+      env,
+      io: harness.io,
+      now: () => new Date("2026-07-01T00:00:10.000Z"),
+    });
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(harness.stdout.join(""))).toMatchObject({
+      blocked: false,
+      pending: 1,
+      resolved: 0,
+      failed: 0,
+      queue: [
+        {
+          username: "alice",
+          status: "pending",
+        },
+      ],
+    });
+  });
+
+  test("profiles resolve saves flood state and leaves current item pending", async () => {
+    const harness = createHarness();
+    const { env } = await createStoredAuthEnv();
+    await runCli(["profiles", "queue", "--username", "alice"], {
+      env,
+      io: createHarness().io,
+      now: () => new Date("2026-07-01T00:00:00.000Z"),
+    });
+
+    const exitCode = await runCli(["profiles", "resolve"], {
+      env,
+      io: harness.io,
+      now: () => new Date("2026-07-01T00:00:10.000Z"),
+      createTelegram: async () => fakeTelegram({
+        getProfile: async () => {
+          throw new Error("FLOOD_WAIT_60");
+        },
+      }),
+    });
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(harness.stdout.join(""))).toMatchObject({
+      blocked: true,
+      blockedUntil: "2026-07-01T00:01:10.000Z",
+      remainingSeconds: 60,
+      pending: 1,
+      resolved: 0,
+      failed: 0,
+      processed: [],
+      errors: [],
+    });
+    expect(
+      JSON.parse(await readFile(resolveStorePaths(env).resolver, "utf8")),
+    ).toMatchObject({
+      blockedUntil: "2026-07-01T00:01:10.000Z",
+      queue: [
+        {
+          username: "alice",
+          status: "pending",
+          attempts: 1,
+          error: "FLOOD_WAIT_60",
+        },
+      ],
     });
   });
 
