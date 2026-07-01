@@ -10,4 +10,5 @@ export type CliContext = {
   env: Record<string, string | undefined>;
   io: CliIo;
   createTelegram?: CreateTelegramClient;
+  now?: () => Date;
 };

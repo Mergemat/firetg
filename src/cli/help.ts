@@ -40,15 +40,17 @@ Use "firetg <module>" for group help and "firetg <module> <command> --help" for 
 
 export function renderModuleHelp(module: CommandModule): string {
   const commands = renderRows(
-    module.commands.map((command) => [
-      commandName(command),
-      [
-        command.help.summary,
-        `firetg ${command.usage}`,
-        ...(command.help.aliases?.map((alias) => `alias: firetg ${alias}`) ??
-          []),
-      ],
-    ]),
+    module.commands
+      .filter((command) => !command.hidden)
+      .map((command) => [
+        commandName(command),
+        [
+          command.help.summary,
+          `firetg ${command.usage}`,
+          ...(command.help.aliases?.map((alias) => `alias: firetg ${alias}`) ??
+            []),
+        ],
+      ]),
   );
 
   return `firetg ${module.scope} - ${module.summary}

@@ -9,6 +9,7 @@ export type ApiCredentials = {
 export type StorePaths = {
   directory: string;
   config: string;
+  resolver: string;
   session: string;
 };
 
@@ -25,6 +26,7 @@ export function resolveStorePaths(
   return {
     directory,
     config: join(directory, "config.json"),
+    resolver: join(directory, "resolver.json"),
     session: join(directory, "session"),
   };
 }

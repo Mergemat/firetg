@@ -2,6 +2,7 @@ export type ParsedArgs = {
   raw: string[];
   command?: string;
   subcommand?: string;
+  positionals: string[];
   flags: Map<string, string>;
 };
 
@@ -10,6 +11,7 @@ export function parseArgs(args: string[]): ParsedArgs {
     raw: args,
     command: args[0],
     subcommand: args[1],
+    positionals: parsePositionals(args),
     flags: parseFlags(args),
   };
 }
@@ -33,6 +35,26 @@ export function parseFlags(args: string[]): Map<string, string> {
   }
 
   return flags;
+}
+
+function parsePositionals(args: string[]): string[] {
+  const positionals: string[] = [];
+  const start = args[0]?.includes(":") ? 1 : 2;
+
+  for (let index = start; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg) continue;
+
+    if (arg.startsWith("--")) {
+      const value = args[index + 1];
+      if (value && !value.startsWith("--")) index += 1;
+      continue;
+    }
+
+    positionals.push(arg);
+  }
+
+  return positionals;
 }
 
 export function readPositiveInt(

@@ -31,6 +31,7 @@ export type CommandSpec = {
   id: string;
   usage: string;
   help: CommandHelp;
+  hidden?: boolean;
   matches: (parsed: ParsedArgs) => boolean;
   run: (input: CommandInput) => Promise<number>;
 };
