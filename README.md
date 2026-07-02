@@ -36,14 +36,21 @@ firetg auth login --phone
 Credentials are stored in `~/.config/firetg/config.json`.
 The Telegram session is stored in `~/.config/firetg/session`.
 
+## Peer cache
+
+Resolved usernames and ids are cached in `~/.config/firetg/peers.json`.
+The first lookup of a peer costs one Telegram resolve call; every later
+command reuses the cached access hash instantly. When Telegram flood-limits
+username resolves, firetg falls back to scanning your dialogs and records
+the flood deadline so it never burns retries. Delete the file to reset the
+cache.
+
 ## Commands
 
 ```bash
 firetg profiles me
 firetg profiles get telegram
 firetg profiles get 116040563
-firetg profiles resolve alice bob --limit 1
-firetg profiles status
 
 firetg channels view --username telegram
 firetg channels view --id 100

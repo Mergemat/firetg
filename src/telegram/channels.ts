@@ -1,64 +1,68 @@
 import { Api, type TelegramClient } from "teleproto";
 import type { ChannelDetails, MessageSummary } from "./types";
-import { normalizeUser } from "./users";
+import { withPeer, type PeerResolver } from "./peers";
 
 export async function getChannelDetails(
   client: TelegramClient,
+  resolver: PeerResolver,
   channel: string,
 ): Promise<ChannelDetails> {
-  const normalized = normalizeUser(channel);
-  const entity = await resolveChannelEntity(client, normalized);
+  return withPeer(
+    resolver,
+    channel,
+    async (peer) => {
+      const inputChannel = toInputChannel(peer);
+      if (!inputChannel) {
+        throw new Error(`${channel} does not resolve to a channel`);
+      }
 
-  const response = await client.invoke(
-    new Api.channels.GetFullChannel({ channel: entity }),
-  );
+      const response = await client.invoke(
+        new Api.channels.GetFullChannel({ channel: inputChannel }),
+      );
 
-  if (!(response instanceof Api.messages.ChatFull)) {
-    throw new Error(`Telegram did not return channel details for ${channel}`);
-  }
+      if (!(response instanceof Api.messages.ChatFull)) {
+        throw new Error(`Telegram did not return channel details for ${channel}`);
+      }
 
-  if (!(response.fullChat instanceof Api.ChannelFull)) {
-    throw new Error(`${channel} does not resolve to full channel details`);
-  }
+      if (!(response.fullChat instanceof Api.ChannelFull)) {
+        throw new Error(`${channel} does not resolve to full channel details`);
+      }
 
-  return serializeChannelDetails(
-    entity,
-    response.fullChat,
-    await getPinnedMessage(client, entity, response.fullChat.pinnedMsgId),
+      const fullChat = response.fullChat;
+      const entity = response.chats.find(
+        (chat): chat is Api.Channel =>
+          chat instanceof Api.Channel &&
+          chat.id.toString() === fullChat.id.toString(),
+      );
+
+      if (!entity) {
+        throw new Error(`${channel} does not resolve to a channel`);
+      }
+
+      return serializeChannelDetails(
+        entity,
+        fullChat,
+        await getPinnedMessage(client, inputChannel, fullChat.pinnedMsgId),
+      );
+    },
+    { kind: "channel" },
   );
 }
 
-async function resolveChannelEntity(
-  client: TelegramClient,
-  channel: string,
-): Promise<Api.Channel> {
-  try {
-    const entity = await client.getEntity(channel);
-    if (entity instanceof Api.Channel) return entity;
-  } catch {
-    // Numeric channel IDs resolve directly only when Teleproto already knows them.
+function toInputChannel(peer: unknown): Api.InputChannel | undefined {
+  if (peer instanceof Api.InputPeerChannel) {
+    return new Api.InputChannel({
+      channelId: peer.channelId,
+      accessHash: peer.accessHash,
+    });
   }
 
-  if (!isChannelId(channel)) {
-    throw new Error(`${channel} does not resolve to a channel`);
-  }
-
-  const dialog = (await client.getDialogs({})).find(
-    (candidate) =>
-      candidate.entity instanceof Api.Channel &&
-      candidate.entity.id?.toString() === channel,
-  );
-
-  if (dialog?.entity instanceof Api.Channel) return dialog.entity;
-
-  throw new Error(
-    `Channel id ${channel} is not known to this session. Open a dialog first or use a username.`,
-  );
+  return undefined;
 }
 
 async function getPinnedMessage(
   client: TelegramClient,
-  channel: Api.Channel,
+  channel: Api.InputChannel,
   pinnedMsgId?: number | null,
 ): Promise<MessageSummary | undefined> {
   const id = normalizePinnedMessageId(pinnedMsgId);
@@ -136,10 +140,6 @@ function peerIdToString(peer?: Api.TypePeer): string | undefined {
   if (peer instanceof Api.PeerChat) return peer.chatId.toString();
   if (peer instanceof Api.PeerChannel) return peer.channelId.toString();
   return undefined;
-}
-
-function isChannelId(channel: string): boolean {
-  return /^\d+$/.test(channel);
 }
 
 function cleanChannelDetails(details: ChannelDetails): ChannelDetails {

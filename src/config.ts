@@ -1,6 +1,7 @@
 import {
   readApiCredentials,
   readSession,
+  resolveStorePaths,
   type ApiCredentials,
 } from "./localStore";
 
@@ -9,6 +10,7 @@ export type TelegramConfig = {
   apiHash: string;
   session?: string;
   sessionPath?: string;
+  peersPath?: string;
 };
 
 export async function readTelegramConfig(
@@ -36,6 +38,7 @@ export async function readTelegramConfig(
       session: sessionLookup.value,
       sessionPath:
         sessionLookup.source === "file" ? sessionLookup.path : undefined,
+      peersPath: resolveStorePaths(env).peers,
     },
   };
 }
