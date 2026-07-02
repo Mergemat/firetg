@@ -24,6 +24,55 @@ function inputUser(id: number): Api.InputPeerUser {
   });
 }
 
+function messageReadStateClient(
+  expectedChat: string,
+  readState: { readInboxMaxId: number; readOutboxMaxId: number } = {
+    readInboxMaxId: 0,
+    readOutboxMaxId: 0,
+  },
+) {
+  const inputPeer = new Api.InputPeerChat({ chatId: bigInt(100) });
+
+  return {
+    getInputEntity: async (chat: string) => {
+      expect(chat).toBe(expectedChat);
+      return inputPeer;
+    },
+    invoke: async (request: Api.AnyRequest) => {
+      expect(request).toBeInstanceOf(Api.messages.GetPeerDialogs);
+      const peer = (request as Api.messages.GetPeerDialogs).peers[0];
+      expect(peer).toBeInstanceOf(Api.InputDialogPeer);
+      expect((peer as Api.InputDialogPeer).peer).toBe(inputPeer);
+
+      return new Api.messages.PeerDialogs({
+        dialogs: [
+          new Api.Dialog({
+            peer: new Api.PeerChat({ chatId: bigInt(100) }),
+            topMessage: 12,
+            readInboxMaxId: readState.readInboxMaxId,
+            readOutboxMaxId: readState.readOutboxMaxId,
+            unreadCount: 0,
+            unreadMentionsCount: 0,
+            unreadReactionsCount: 0,
+            unreadPollVotesCount: 0,
+            notifySettings: new Api.PeerNotifySettings({}),
+          }),
+        ],
+        messages: [],
+        chats: [],
+        users: [],
+        state: new Api.updates.State({
+          pts: 0,
+          qts: 0,
+          date: 0,
+          seq: 0,
+          unreadCount: 0,
+        }),
+      });
+    },
+  };
+}
+
 describe("telegram dialog listing", () => {
   test("explicit custom folders fetch only their peers", async () => {
     const first = inputUser(1);
@@ -251,6 +300,7 @@ describe("telegram message listing", () => {
           }),
         ];
       },
+      ...messageReadStateClient("firetg"),
     };
 
     await expect(
@@ -306,6 +356,7 @@ describe("telegram message listing", () => {
           }),
         }),
       ],
+      ...messageReadStateClient("firetg"),
     };
 
     await expect(
@@ -334,6 +385,73 @@ describe("telegram message listing", () => {
     ]);
   });
 
+  test("message history includes explicit read receipts", async () => {
+    const client = {
+      getMessages: async () => [
+        new Api.Message({
+          id: 8,
+          date: 1_800_000_008,
+          message: "read incoming",
+          out: false,
+        }),
+        new Api.Message({
+          id: 12,
+          date: 1_800_000_012,
+          message: "unread incoming",
+          out: false,
+        }),
+        new Api.Message({
+          id: 9,
+          date: 1_800_000_009,
+          message: "read outgoing",
+          out: true,
+        }),
+      ],
+      ...messageReadStateClient("firetg", {
+        readInboxMaxId: 10,
+        readOutboxMaxId: 9,
+      }),
+    };
+
+    await expect(
+      listTelegramMessages(client as never, {
+        chat: "firetg",
+        limit: 3,
+      }),
+    ).resolves.toEqual([
+      {
+        id: 12,
+        date: 1_800_000_012,
+        text: "unread incoming",
+        readReceipt: {
+          read: false,
+          direction: "inbox",
+        },
+        outgoing: false,
+      },
+      {
+        id: 9,
+        date: 1_800_000_009,
+        text: "read outgoing",
+        readReceipt: {
+          read: true,
+          direction: "outbox",
+        },
+        outgoing: true,
+      },
+      {
+        id: 8,
+        date: 1_800_000_008,
+        text: "read incoming",
+        readReceipt: {
+          read: true,
+          direction: "inbox",
+        },
+        outgoing: false,
+      },
+    ]);
+  });
+
   test("pinned messages use the pinned filter and are newest first", async () => {
     const client = {
       getMessages: async (
@@ -356,6 +474,7 @@ describe("telegram message listing", () => {
           }),
         ];
       },
+      ...messageReadStateClient("firetg"),
     };
 
     await expect(
@@ -416,6 +535,7 @@ describe("telegram message listing", () => {
 
         return [];
       },
+      ...messageReadStateClient("launch-team"),
     };
 
     await expect(
@@ -492,6 +612,7 @@ describe("telegram message listing", () => {
 
         return [];
       },
+      ...messageReadStateClient("launch-team"),
     };
 
     await expect(

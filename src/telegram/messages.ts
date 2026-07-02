@@ -1,11 +1,17 @@
 import { Api, type TelegramClient } from "teleproto";
 import type {
   MessageMediaSummary,
+  MessageReadReceipt,
   MessageSummary,
   SendMessageInput,
   SentMessage,
 } from "./types";
 import { getKnownUserEntityById, isUserId, normalizeUser } from "./users";
+
+type MessageReadState = {
+  readInboxMaxId: number;
+  readOutboxMaxId: number;
+};
 
 export async function sendTelegramMessage(
   client: TelegramClient,
@@ -48,8 +54,9 @@ export async function listTelegramMessages(
     limit: options.limit,
     search: options.search,
   });
+  const readState = await getMessageReadState(client, options.chat);
 
-  return serializeMessages(messages);
+  return serializeMessages(messages, readState);
 }
 
 export async function listTelegramPinnedMessages(
@@ -63,8 +70,9 @@ export async function listTelegramPinnedMessages(
     limit: options.limit,
     filter: new Api.InputMessagesFilterPinned(),
   });
+  const readState = await getMessageReadState(client, options.chat);
 
-  return serializeMessages(messages);
+  return serializeMessages(messages, readState);
 }
 
 export async function listTelegramReplies(
@@ -82,8 +90,9 @@ export async function listTelegramReplies(
     senders: options.from,
     limit: options.limit,
   });
+  const readState = await getMessageReadState(client, options.chat);
 
-  return serializeMessages(replies);
+  return serializeMessages(replies, readState);
 }
 
 function serializeSentMessage(message: Api.Message): SentMessage {
@@ -104,8 +113,12 @@ function normalizeSendMessageInput(
   return typeof message === "string" ? { text: message } : message;
 }
 
-function serializeMessage(message: Api.Message): MessageSummary {
+function serializeMessage(
+  message: Api.Message,
+  readState?: MessageReadState,
+): MessageSummary {
   const media = serializeMessageMedia(message);
+  const readReceipt = serializeMessageReadReceipt(message, readState);
   const senderId = peerIdToString(message.fromId);
   const chatId = peerIdToString(message.peerId);
   const summary: MessageSummary = {
@@ -116,6 +129,7 @@ function serializeMessage(message: Api.Message): MessageSummary {
   const replyToMessageId = messageReplyToMessageId(message);
 
   if (media) summary.media = media;
+  if (readReceipt) summary.readReceipt = readReceipt;
   if (senderId !== undefined) summary.senderId = senderId;
   if (chatId !== undefined) summary.chatId = chatId;
   if (message.out !== undefined) summary.outgoing = message.out;
@@ -126,12 +140,39 @@ function serializeMessage(message: Api.Message): MessageSummary {
   return summary;
 }
 
-function serializeMessages(messages: Api.Message[]): MessageSummary[] {
-  return sortMessagesNewestFirst(messages).map(serializeMessage);
+function serializeMessages(
+  messages: Api.Message[],
+  readState?: MessageReadState,
+): MessageSummary[] {
+  return sortMessagesNewestFirst(messages).map((message) =>
+    serializeMessage(message, readState),
+  );
 }
 
 function sortMessagesNewestFirst(messages: Api.Message[]): Api.Message[] {
   return [...messages].sort(compareMessagesNewestFirst);
+}
+
+async function getMessageReadState(
+  client: TelegramClient,
+  chat: string,
+): Promise<MessageReadState | undefined> {
+  const peer = await client.getInputEntity(chat);
+  const response = await client.invoke(
+    new Api.messages.GetPeerDialogs({
+      peers: [new Api.InputDialogPeer({ peer })],
+    }),
+  );
+  const dialog = response.dialogs.find(
+    (candidate): candidate is Api.Dialog => candidate instanceof Api.Dialog,
+  );
+
+  if (!dialog) return undefined;
+
+  return {
+    readInboxMaxId: dialog.readInboxMaxId,
+    readOutboxMaxId: dialog.readOutboxMaxId,
+  };
 }
 
 async function listRepliesFromSenders(
@@ -231,6 +272,26 @@ function peerIdToString(peer?: Api.TypePeer): string | undefined {
   if (peer instanceof Api.PeerChat) return peer.chatId.toString();
   if (peer instanceof Api.PeerChannel) return peer.channelId.toString();
   return undefined;
+}
+
+function serializeMessageReadReceipt(
+  message: Api.Message,
+  readState?: MessageReadState,
+): MessageReadReceipt | undefined {
+  if (!readState || message.out === undefined) return undefined;
+
+  const messageId = Number(message.id);
+  if (message.out) {
+    return {
+      read: messageId <= readState.readOutboxMaxId,
+      direction: "outbox",
+    };
+  }
+
+  return {
+    read: messageId <= readState.readInboxMaxId,
+    direction: "inbox",
+  };
 }
 
 function messageReplyToMessageId(message: Api.Message): number | undefined {
