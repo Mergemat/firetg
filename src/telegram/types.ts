@@ -58,6 +58,12 @@ export type MessageSummary = {
   chatId?: string;
   replyToMessageId?: number;
   outgoing?: boolean;
+  readReceipt?: MessageReadReceipt;
+};
+
+export type MessageReadReceipt = {
+  read: boolean;
+  direction: "inbox" | "outbox";
 };
 
 export type MessageMediaSummary = {
