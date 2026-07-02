@@ -273,7 +273,7 @@ describe("telegram message sending", () => {
 });
 
 describe("telegram message listing", () => {
-  test("known username chats use dialog input peers before listing", async () => {
+  test("username chats stop scanning dialogs after the first match", async () => {
     const inputPeer = inputUser(42);
     const user = new Api.User({
       id: bigInt(42),
@@ -282,10 +282,25 @@ describe("telegram message listing", () => {
       firstName: "Known",
     });
     let requestedChat: unknown;
+    const dialogIterations: unknown[] = [];
+    const inputEntityLookups: unknown[] = [];
 
     const client = {
       ...messageReadStateClient(inputPeer, undefined, inputPeer),
-      getDialogs: async () => [{ entity: user, inputEntity: inputPeer }],
+      getDialogs: async () => {
+        throw new Error("username chats should not collect every dialog");
+      },
+      async *iterDialogs(params: unknown) {
+        dialogIterations.push(params);
+        yield { entity: user, inputEntity: inputPeer };
+        throw new Error("username chat lookup should stop after a match");
+      },
+      getInputEntity: async (chat: unknown) => {
+        inputEntityLookups.push(chat);
+        if (chat === inputPeer) return inputPeer;
+
+        throw new Error(`unexpected input entity lookup: ${String(chat)}`);
+      },
       getMessages: async (
         chat: unknown,
         params: { limit: number; search?: string },
@@ -306,7 +321,7 @@ describe("telegram message listing", () => {
 
     await expect(
       listTelegramMessages(client as never, {
-        chat: "@username",
+        chat: "@UserName",
         limit: 1,
       }),
     ).resolves.toEqual([
@@ -317,6 +332,8 @@ describe("telegram message listing", () => {
       },
     ]);
     expect(requestedChat).toBe(inputPeer);
+    expect(dialogIterations).toEqual([{}]);
+    expect(inputEntityLookups).toEqual([inputPeer]);
   });
 
   test("message history is newest first", async () => {
@@ -325,7 +342,7 @@ describe("telegram message listing", () => {
         chat: string,
         params: { limit: number; search?: string },
       ) => {
-        expect(chat).toBe("firetg");
+        expect(chat).toBe("launch-team");
         expect(params).toEqual({ limit: 3, search: undefined });
         return [
           new Api.Message({
@@ -346,12 +363,12 @@ describe("telegram message listing", () => {
           }),
         ];
       },
-      ...messageReadStateClient("firetg"),
+      ...messageReadStateClient("launch-team"),
     };
 
     await expect(
       listTelegramMessages(client as never, {
-        chat: "firetg",
+        chat: "launch-team",
         limit: 3,
       }),
     ).resolves.toEqual([
@@ -402,12 +419,12 @@ describe("telegram message listing", () => {
           }),
         }),
       ],
-      ...messageReadStateClient("firetg"),
+      ...messageReadStateClient("launch-team"),
     };
 
     await expect(
       listTelegramMessages(client as never, {
-        chat: "firetg",
+        chat: "launch-team",
         limit: 2,
       }),
     ).resolves.toEqual([
@@ -453,7 +470,7 @@ describe("telegram message listing", () => {
           out: true,
         }),
       ],
-      ...messageReadStateClient("firetg", {
+      ...messageReadStateClient("launch-team", {
         readInboxMaxId: 10,
         readOutboxMaxId: 9,
       }),
@@ -461,7 +478,7 @@ describe("telegram message listing", () => {
 
     await expect(
       listTelegramMessages(client as never, {
-        chat: "firetg",
+        chat: "launch-team",
         limit: 3,
       }),
     ).resolves.toEqual([
@@ -504,7 +521,7 @@ describe("telegram message listing", () => {
         chat: string,
         params: { limit: number; filter: Api.InputMessagesFilterPinned },
       ) => {
-        expect(chat).toBe("firetg");
+        expect(chat).toBe("launch-team");
         expect(params.limit).toBe(2);
         expect(params.filter).toBeInstanceOf(Api.InputMessagesFilterPinned);
         return [
@@ -520,12 +537,12 @@ describe("telegram message listing", () => {
           }),
         ];
       },
-      ...messageReadStateClient("firetg"),
+      ...messageReadStateClient("launch-team"),
     };
 
     await expect(
       listTelegramPinnedMessages(client as never, {
-        chat: "firetg",
+        chat: "launch-team",
         limit: 2,
       }),
     ).resolves.toEqual([
