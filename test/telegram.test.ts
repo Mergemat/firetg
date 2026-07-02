@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import bigInt from "big-integer";
 import { Api } from "teleproto";
 import {
@@ -8,12 +11,15 @@ import {
   type DialogSource,
 } from "../src/telegram/dialogs";
 import { getChannelDetails } from "../src/telegram/channels";
+import { RateLimitedError } from "../src/telegram/errors";
 import {
   listTelegramMessages,
   listTelegramPinnedMessages,
   listTelegramReplies,
   sendTelegramMessage,
 } from "../src/telegram/messages";
+import { createPeerResolver } from "../src/telegram/peers";
+import type { PeerCache } from "../src/peerStore";
 
 const title = new Api.TextWithEntities({ text: "Managers", entities: [] });
 
@@ -24,8 +30,48 @@ function inputUser(id: number): Api.InputPeerUser {
   });
 }
 
+function apiUser(id: number, username?: string): Api.User {
+  return new Api.User({
+    id: bigInt(id),
+    accessHash: bigInt(id * 10),
+    username,
+    firstName: `User${id}`,
+  });
+}
+
+function apiChannel(id: number, username?: string): Api.Channel {
+  return new Api.Channel({
+    id: bigInt(id),
+    accessHash: bigInt(id * 10),
+    title: `Channel ${id}`,
+    username,
+    photo: new Api.ChatPhotoEmpty(),
+    date: 1_800_000_000,
+    broadcast: true,
+  });
+}
+
+async function tempPeersPath(): Promise<string> {
+  return join(await mkdtemp(join(tmpdir(), "firetg-peers-")), "peers.json");
+}
+
+async function seedPeers(path: string, cache: Partial<PeerCache>) {
+  await writeFile(
+    path,
+    JSON.stringify({ version: 1, peers: [], ...cache }, null, 2),
+  );
+}
+
+async function readPeers(path: string): Promise<PeerCache> {
+  return JSON.parse(await readFile(path, "utf8"));
+}
+
+function resolverFor(client: unknown, path?: string) {
+  return createPeerResolver(client as never, path);
+}
+
 function messageReadStateClient(
-  expectedChat: string | Api.TypeInputPeer,
+  expectedChat: unknown,
   readState: { readInboxMaxId: number; readOutboxMaxId: number } = {
     readInboxMaxId: 0,
     readOutboxMaxId: 0,
@@ -34,8 +80,8 @@ function messageReadStateClient(
 ) {
   return {
     getDialogs: async () => [],
-    getInputEntity: async (chat: string | Api.TypeInputPeer) => {
-      expect(chat).toBe(expectedChat);
+    getInputEntity: async (chat: unknown) => {
+      expect(chat).toEqual(expectedChat);
       return inputPeer;
     },
     invoke: async (request: Api.AnyRequest) => {
@@ -193,21 +239,228 @@ describe("telegram dialog listing", () => {
   });
 });
 
-describe("telegram message sending", () => {
-  test("known numeric user ids resolve through dialogs before sending", async () => {
-    const user = new Api.User({
-      id: bigInt(123456789),
-      accessHash: bigInt(1),
-      firstName: "Kirill",
+describe("peer resolution", () => {
+  test("unknown usernames resolve once and are cached for later runs", async () => {
+    const peersPath = await tempPeersPath();
+    const channel = apiChannel(200, "HR_MAXMA");
+    let resolveCalls = 0;
+    const requestedChats: unknown[] = [];
+
+    const client = {
+      invoke: async (request: Api.AnyRequest) => {
+        if (request instanceof Api.contacts.ResolveUsername) {
+          resolveCalls += 1;
+          expect(request.username).toBe("hr_maxma");
+          return new Api.contacts.ResolvedPeer({
+            peer: new Api.PeerChannel({ channelId: channel.id }),
+            chats: [channel],
+            users: [],
+          });
+        }
+
+        expect(request).toBeInstanceOf(Api.messages.GetPeerDialogs);
+        return new Api.messages.PeerDialogs({
+          dialogs: [],
+          messages: [],
+          chats: [],
+          users: [],
+          state: new Api.updates.State({
+            pts: 0,
+            qts: 0,
+            date: 0,
+            seq: 0,
+            unreadCount: 0,
+          }),
+        });
+      },
+      getInputEntity: async (chat: unknown) => chat,
+      getMessages: async (chat: unknown, params: { limit: number }) => {
+        requestedChats.push(chat);
+        expect(params.limit).toBe(1);
+        return [
+          new Api.Message({ id: 5, date: 1_800_000_005, message: "hi" }),
+        ];
+      },
+      iterDialogs: () => {
+        throw new Error("cached/resolved usernames should not scan dialogs");
+      },
+    };
+
+    await expect(
+      listTelegramMessages(client as never, resolverFor(client, peersPath), {
+        chat: "@HR_MAXMA",
+        limit: 1,
+      }),
+    ).resolves.toEqual([{ id: 5, date: 1_800_000_005, text: "hi" }]);
+
+    // A fresh resolver (new CLI run) must hit the on-disk cache, not Telegram.
+    await expect(
+      listTelegramMessages(client as never, resolverFor(client, peersPath), {
+        chat: "hr_maxma",
+        limit: 1,
+      }),
+    ).resolves.toEqual([{ id: 5, date: 1_800_000_005, text: "hi" }]);
+
+    expect(resolveCalls).toBe(1);
+    expect(requestedChats).toHaveLength(2);
+    for (const chat of requestedChats) {
+      expect(chat).toBeInstanceOf(Api.InputPeerChannel);
+      expect((chat as Api.InputPeerChannel).channelId.toString()).toBe("200");
+    }
+
+    const cache = await readPeers(peersPath);
+    expect(cache.peers).toMatchObject([
+      {
+        kind: "channel",
+        id: "200",
+        accessHash: "2000",
+        usernames: ["hr_maxma"],
+      },
+    ]);
+  });
+
+  test("flood waits fall back to a dialog scan and persist the block", async () => {
+    const peersPath = await tempPeersPath();
+    const known = apiUser(42, "KnownUser");
+    const knownInput = inputUser(42);
+
+    const client = {
+      invoke: async (request: Api.AnyRequest) => {
+        if (request instanceof Api.contacts.ResolveUsername) {
+          throw new Error("FLOOD_WAIT_120");
+        }
+        throw new Error(`unexpected request ${request.className}`);
+      },
+      async *iterDialogs() {
+        yield { entity: known, inputEntity: knownInput };
+        throw new Error("dialog scan should stop after a match");
+      },
+      sendMessage: async (entity: unknown, params: { message: string }) => {
+        expect(entity).toBe(knownInput);
+        return new Api.Message({
+          id: 9,
+          date: 1_800_000_009,
+          message: params.message,
+        });
+      },
+    };
+
+    await expect(
+      sendTelegramMessage(
+        client as never,
+        resolverFor(client, peersPath),
+        "@KnownUser",
+        "hello",
+      ),
+    ).resolves.toEqual({ id: 9, date: 1_800_000_009, text: "hello" });
+
+    const cache = await readPeers(peersPath);
+    expect(cache.resolveBlockedUntil).toBeDefined();
+    expect(cache.peers).toMatchObject([
+      { kind: "user", id: "42", usernames: ["knownuser"] },
+    ]);
+  });
+
+  test("blocked resolves without a dialog match raise RateLimitedError", async () => {
+    const peersPath = await tempPeersPath();
+    await seedPeers(peersPath, {
+      resolveBlockedUntil: new Date(Date.now() + 60_000).toISOString(),
     });
+    let resolveCalls = 0;
+
+    const client = {
+      invoke: async () => {
+        resolveCalls += 1;
+        throw new Error("resolve must not be called while blocked");
+      },
+      async *iterDialogs() {
+        yield { entity: apiUser(1, "someoneelse"), inputEntity: inputUser(1) };
+      },
+    };
+
+    await expect(
+      sendTelegramMessage(
+        client as never,
+        resolverFor(client, peersPath),
+        "@Stranger",
+        "hello",
+      ),
+    ).rejects.toBeInstanceOf(RateLimitedError);
+    expect(resolveCalls).toBe(0);
+  });
+
+  test("stale cached access hashes re-resolve once and retry", async () => {
+    const peersPath = await tempPeersPath();
+    await seedPeers(peersPath, {
+      peers: [
+        {
+          kind: "channel",
+          id: "200",
+          accessHash: "999",
+          usernames: ["hr_maxma"],
+          cachedAt: new Date(0).toISOString(),
+        },
+      ],
+    });
+    const channel = apiChannel(200, "hr_maxma");
+    const attempts: string[] = [];
+
+    const client = {
+      invoke: async (request: Api.AnyRequest) => {
+        if (request instanceof Api.contacts.ResolveUsername) {
+          return new Api.contacts.ResolvedPeer({
+            peer: new Api.PeerChannel({ channelId: channel.id }),
+            chats: [channel],
+            users: [],
+          });
+        }
+
+        return new Api.messages.PeerDialogs({
+          dialogs: [],
+          messages: [],
+          chats: [],
+          users: [],
+          state: new Api.updates.State({
+            pts: 0,
+            qts: 0,
+            date: 0,
+            seq: 0,
+            unreadCount: 0,
+          }),
+        });
+      },
+      getInputEntity: async (chat: unknown) => chat,
+      getMessages: async (chat: Api.InputPeerChannel) => {
+        attempts.push(chat.accessHash.toString());
+        if (chat.accessHash.toString() === "999") {
+          throw new Error("CHANNEL_INVALID");
+        }
+        return [
+          new Api.Message({ id: 6, date: 1_800_000_006, message: "ok" }),
+        ];
+      },
+    };
+
+    await expect(
+      listTelegramMessages(client as never, resolverFor(client, peersPath), {
+        chat: "hr_maxma",
+        limit: 1,
+      }),
+    ).resolves.toEqual([{ id: 6, date: 1_800_000_006, text: "ok" }]);
+    expect(attempts).toEqual(["999", "2000"]);
+  });
+
+  test("known numeric user ids resolve through dialogs and are cached", async () => {
+    const peersPath = await tempPeersPath();
+    const user = apiUser(123456789);
+    const userInput = inputUser(123456789);
     let sentEntity: unknown;
 
     const client = {
-      getEntity: async () => {
-        throw new Error("direct entity lookup failed");
-      },
       getMe: async () => new Api.User({ id: bigInt(1) }),
-      getDialogs: async () => [{ entity: user }],
+      async *iterDialogs() {
+        yield { entity: user, inputEntity: userInput };
+      },
       sendMessage: async (entity: unknown, params: { message: string }) => {
         sentEntity = entity;
         return new Api.Message({
@@ -220,15 +473,69 @@ describe("telegram message sending", () => {
     };
 
     await expect(
-      sendTelegramMessage(client as never, "123456789", "hello"),
+      sendTelegramMessage(
+        client as never,
+        resolverFor(client, peersPath),
+        "123456789",
+        "hello",
+      ),
     ).resolves.toEqual({
       id: 9,
       date: 1_800_000_002,
       text: "hello",
     });
-    expect(sentEntity).toBe(user);
+    expect(sentEntity).toBe(userInput);
+
+    const cache = await readPeers(peersPath);
+    expect(cache.peers).toMatchObject([{ kind: "user", id: "123456789" }]);
   });
 
+  test("cached numeric ids resolve without touching Telegram", async () => {
+    const peersPath = await tempPeersPath();
+    await seedPeers(peersPath, {
+      peers: [
+        {
+          kind: "user",
+          id: "123456789",
+          accessHash: "77",
+          usernames: [],
+          cachedAt: new Date().toISOString(),
+        },
+      ],
+    });
+    let sentEntity: unknown;
+
+    const client = {
+      getMe: async () => {
+        throw new Error("cached ids should not call getMe");
+      },
+      iterDialogs: () => {
+        throw new Error("cached ids should not scan dialogs");
+      },
+      sendMessage: async (entity: unknown, params: { message: string }) => {
+        sentEntity = entity;
+        return new Api.Message({
+          id: 8,
+          date: 1_800_000_001,
+          message: params.message,
+        });
+      },
+    };
+
+    await expect(
+      sendTelegramMessage(
+        client as never,
+        resolverFor(client, peersPath),
+        "123456789",
+        "hello",
+      ),
+    ).resolves.toEqual({ id: 8, date: 1_800_000_001, text: "hello" });
+    expect(sentEntity).toBeInstanceOf(Api.InputPeerUser);
+    expect((sentEntity as Api.InputPeerUser).accessHash.toString()).toBe("77");
+  });
+});
+
+describe("telegram message sending", () => {
   test("attachments are sent through sendFile", async () => {
     let textSent = false;
     let sentEntity: unknown;
@@ -251,7 +558,7 @@ describe("telegram message sending", () => {
     };
 
     await expect(
-      sendTelegramMessage(client as never, "@telegram", {
+      sendTelegramMessage(client as never, resolverFor(client), "launch-team", {
         text: "caption",
         attachment: "/tmp/photo.jpg",
         forceDocument: true,
@@ -262,7 +569,7 @@ describe("telegram message sending", () => {
       text: "caption",
     });
     expect(textSent).toBe(false);
-    expect(sentEntity).toBe("telegram");
+    expect(sentEntity).toBe("launch-team");
     expect(sentParams).toEqual({
       file: "/tmp/photo.jpg",
       caption: "caption",
@@ -273,69 +580,6 @@ describe("telegram message sending", () => {
 });
 
 describe("telegram message listing", () => {
-  test("username chats stop scanning dialogs after the first match", async () => {
-    const inputPeer = inputUser(42);
-    const user = new Api.User({
-      id: bigInt(42),
-      accessHash: bigInt(420),
-      username: "UserName",
-      firstName: "Known",
-    });
-    let requestedChat: unknown;
-    const dialogIterations: unknown[] = [];
-    const inputEntityLookups: unknown[] = [];
-
-    const client = {
-      ...messageReadStateClient(inputPeer, undefined, inputPeer),
-      getDialogs: async () => {
-        throw new Error("username chats should not collect every dialog");
-      },
-      async *iterDialogs(params: unknown) {
-        dialogIterations.push(params);
-        yield { entity: user, inputEntity: inputPeer };
-        throw new Error("username chat lookup should stop after a match");
-      },
-      getInputEntity: async (chat: unknown) => {
-        inputEntityLookups.push(chat);
-        if (chat === inputPeer) return inputPeer;
-
-        throw new Error(`unexpected input entity lookup: ${String(chat)}`);
-      },
-      getMessages: async (
-        chat: unknown,
-        params: { limit: number; search?: string },
-      ) => {
-        requestedChat = chat;
-        expect(chat).toBe(inputPeer);
-        expect(params).toEqual({ limit: 1, search: undefined });
-
-        return [
-          new Api.Message({
-            id: 12,
-            date: 1_800_000_012,
-            message: "from known dialog",
-          }),
-        ];
-      },
-    };
-
-    await expect(
-      listTelegramMessages(client as never, {
-        chat: "@UserName",
-        limit: 1,
-      }),
-    ).resolves.toEqual([
-      {
-        id: 12,
-        date: 1_800_000_012,
-        text: "from known dialog",
-      },
-    ]);
-    expect(requestedChat).toBe(inputPeer);
-    expect(dialogIterations).toEqual([{}]);
-    expect(inputEntityLookups).toEqual([inputPeer]);
-  });
-
   test("message history is newest first", async () => {
     const client = {
       getMessages: async (
@@ -367,7 +611,7 @@ describe("telegram message listing", () => {
     };
 
     await expect(
-      listTelegramMessages(client as never, {
+      listTelegramMessages(client as never, resolverFor(client), {
         chat: "launch-team",
         limit: 3,
       }),
@@ -423,7 +667,7 @@ describe("telegram message listing", () => {
     };
 
     await expect(
-      listTelegramMessages(client as never, {
+      listTelegramMessages(client as never, resolverFor(client), {
         chat: "launch-team",
         limit: 2,
       }),
@@ -477,7 +721,7 @@ describe("telegram message listing", () => {
     };
 
     await expect(
-      listTelegramMessages(client as never, {
+      listTelegramMessages(client as never, resolverFor(client), {
         chat: "launch-team",
         limit: 3,
       }),
@@ -541,7 +785,7 @@ describe("telegram message listing", () => {
     };
 
     await expect(
-      listTelegramPinnedMessages(client as never, {
+      listTelegramPinnedMessages(client as never, resolverFor(client), {
         chat: "launch-team",
         limit: 2,
       }),
@@ -552,11 +796,17 @@ describe("telegram message listing", () => {
   });
 
   test("reply search includes replies from selected senders", async () => {
-    const knownUser = new Api.User({
-      id: bigInt(42),
-      accessHash: bigInt(420),
-      firstName: "Ops",
-      lastName: "Lead",
+    const peersPath = await tempPeersPath();
+    await seedPeers(peersPath, {
+      peers: [
+        {
+          kind: "user",
+          id: "42",
+          accessHash: "420",
+          usernames: [],
+          cachedAt: new Date().toISOString(),
+        },
+      ],
     });
     const calls: Array<{
       chat: string;
@@ -564,26 +814,25 @@ describe("telegram message listing", () => {
         limit: number;
         search?: string;
         replyTo?: number;
-        fromUser?: string | Api.User;
+        fromUser?: unknown;
       };
     }> = [];
     const client = {
-      getEntity: async (entity: string) => {
-        expect(entity).toBe("42");
-        return knownUser;
-      },
       getMessages: async (
         chat: string,
         params: {
           limit: number;
           search?: string;
           replyTo?: number;
-          fromUser?: string | Api.User;
+          fromUser?: unknown;
         },
       ) => {
         calls.push({ chat, params });
 
-        if (params.replyTo === 10 && params.fromUser === knownUser) {
+        if (
+          params.replyTo === 10 &&
+          params.fromUser instanceof Api.InputPeerUser
+        ) {
           return [
             new Api.Message({
               id: 12,
@@ -602,10 +851,10 @@ describe("telegram message listing", () => {
     };
 
     await expect(
-      listTelegramReplies(client as never, {
+      listTelegramReplies(client as never, resolverFor(client, peersPath), {
         chat: "launch-team",
         messageId: 10,
-        from: ["42", "alice"],
+        from: ["42", "alice-x"],
         limit: 5,
       }),
     ).resolves.toEqual([
@@ -618,16 +867,14 @@ describe("telegram message listing", () => {
         replyToMessageId: 10,
       },
     ]);
-    expect(calls).toEqual([
-      {
-        chat: "launch-team",
-        params: { limit: 5, replyTo: 10, fromUser: knownUser },
-      },
-      {
-        chat: "launch-team",
-        params: { limit: 5, replyTo: 10, fromUser: "alice" },
-      },
-    ]);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.params.replyTo).toBe(10);
+    expect(calls[0]?.params.fromUser).toBeInstanceOf(Api.InputPeerUser);
+    expect(calls[1]?.params).toMatchObject({
+      limit: 5,
+      replyTo: 10,
+      fromUser: "alice-x",
+    });
   });
 
   test("reply search falls back to sender history when reply threads are unavailable", async () => {
@@ -656,7 +903,7 @@ describe("telegram message listing", () => {
           throw new Error("PEER_ID_INVALID");
         }
 
-        if (params.fromUser === "alice") {
+        if (params.fromUser === "alice-x") {
           return [
             new Api.Message({
               id: 15,
@@ -679,10 +926,10 @@ describe("telegram message listing", () => {
     };
 
     await expect(
-      listTelegramReplies(client as never, {
+      listTelegramReplies(client as never, resolverFor(client), {
         chat: "launch-team",
         messageId: 10,
-        from: ["alice"],
+        from: ["alice-x"],
         limit: 50,
       }),
     ).resolves.toEqual([
@@ -696,163 +943,58 @@ describe("telegram message listing", () => {
     expect(calls).toEqual([
       {
         chat: "launch-team",
-        params: { limit: 50, replyTo: 10, fromUser: "alice" },
+        params: { limit: 50, replyTo: 10, fromUser: "alice-x" },
       },
       {
         chat: "launch-team",
-        params: { limit: 50, fromUser: "alice" },
+        params: { limit: 50, fromUser: "alice-x" },
       },
     ]);
   });
 });
 
 describe("telegram channel details", () => {
-  test("channel view omits pinned message when Telegram returns null pinned id", async () => {
-    const channel = new Api.Channel({
-      id: bigInt(100),
-      accessHash: bigInt(10),
-      title: "FireTG",
-      photo: new Api.ChatPhotoEmpty(),
-      date: 1_800_000_000,
-      broadcast: true,
-    });
-
-    const client = {
-      getEntity: async () => channel,
+  function channelClient(
+    channel: Api.Channel,
+    fullChat: Api.ChannelFull,
+    options: {
+      pinned?: Api.Message;
+      onResolve?: () => void;
+    } = {},
+  ) {
+    return {
       invoke: async (request: Api.AnyRequest) => {
-        expect(request).toBeInstanceOf(Api.channels.GetFullChannel);
-        return new Api.messages.ChatFull({
-          fullChat: new Api.ChannelFull({
-            id: channel.id,
-            about: "No pinned message",
-            readInboxMaxId: 0,
-            readOutboxMaxId: 0,
-            unreadCount: 0,
-            chatPhoto: new Api.PhotoEmpty({ id: bigInt(1) }),
-            notifySettings: new Api.PeerNotifySettings({}),
-            botInfo: [],
-            pinnedMsgId: null as never,
-            pts: 1,
-          }),
-          chats: [channel],
-          users: [],
-        });
-      },
-      getMessages: async () => {
-        throw new Error("missing pinned message should not fetch messages");
-      },
-    };
+        if (request instanceof Api.contacts.ResolveUsername) {
+          options.onResolve?.();
+          return new Api.contacts.ResolvedPeer({
+            peer: new Api.PeerChannel({ channelId: channel.id }),
+            chats: [channel],
+            users: [],
+          });
+        }
 
-    await expect(
-      getChannelDetails(client as never, "firetg"),
-    ).resolves.toEqual({
-      id: "100",
-      title: "FireTG",
-      description: "No pinned message",
-    });
-  });
-
-  test("known numeric channel ids resolve through dialogs", async () => {
-    const channel = new Api.Channel({
-      id: bigInt(100),
-      accessHash: bigInt(10),
-      title: "FireTG",
-      photo: new Api.ChatPhotoEmpty(),
-      date: 1_800_000_000,
-      broadcast: true,
-    });
-    let requestedChannel: unknown;
-
-    const client = {
-      getEntity: async () => {
-        throw new Error("direct entity lookup failed");
-      },
-      getDialogs: async () => [{ entity: channel }],
-      invoke: async (request: Api.channels.GetFullChannel) => {
-        requestedChannel = request.channel;
-        return new Api.messages.ChatFull({
-          fullChat: new Api.ChannelFull({
-            id: channel.id,
-            about: "Known channel",
-            readInboxMaxId: 0,
-            readOutboxMaxId: 0,
-            unreadCount: 0,
-            chatPhoto: new Api.PhotoEmpty({ id: bigInt(1) }),
-            notifySettings: new Api.PeerNotifySettings({}),
-            botInfo: [],
-            pts: 1,
-          }),
-          chats: [channel],
-          users: [],
-        });
-      },
-      getMessages: async () => {
-        throw new Error("channel has no pinned message");
-      },
-    };
-
-    await expect(
-      getChannelDetails(client as never, "100"),
-    ).resolves.toEqual({
-      id: "100",
-      title: "FireTG",
-      description: "Known channel",
-    });
-    expect(requestedChannel).toBe(channel);
-  });
-
-  test("channel view includes description and pinned message", async () => {
-    const channel = new Api.Channel({
-      id: bigInt(100),
-      accessHash: bigInt(10),
-      title: "FireTG",
-      username: "firetg",
-      photo: new Api.ChatPhotoEmpty(),
-      date: 1_800_000_000,
-      broadcast: true,
-      verified: true,
-      participantsCount: 123,
-    });
-    const pinned = new Api.Message({
-      id: 7,
-      date: 1_800_000_003,
-      message: "Start here",
-      peerId: new Api.PeerChannel({ channelId: channel.id }),
-    });
-
-    const client = {
-      getEntity: async (entity: string) => {
-        expect(entity).toBe("firetg");
-        return channel;
-      },
-      invoke: async (request: Api.AnyRequest) => {
         if (request instanceof Api.channels.GetFullChannel) {
+          expect(request.channel).toBeInstanceOf(Api.InputChannel);
+          expect(
+            (request.channel as Api.InputChannel).channelId.toString(),
+          ).toBe(channel.id.toString());
           return new Api.messages.ChatFull({
-            fullChat: new Api.ChannelFull({
-              id: channel.id,
-              about: "Agent-ready Telegram CLI",
-              participantsCount: 123,
-              readInboxMaxId: 0,
-              readOutboxMaxId: 0,
-              unreadCount: 0,
-              chatPhoto: new Api.PhotoEmpty({ id: bigInt(1) }),
-              notifySettings: new Api.PeerNotifySettings({}),
-              botInfo: [],
-              pinnedMsgId: 7,
-              pts: 1,
-            }),
+            fullChat,
             chats: [channel],
             users: [],
           });
         }
 
         expect(request).toBeInstanceOf(Api.channels.GetMessages);
-        expect((request as Api.channels.GetMessages).channel).toBe(channel);
-        expect((request as Api.channels.GetMessages).id).toEqual([
-          new Api.InputMessageID({ id: 7 }),
-        ]);
+        if (!options.pinned) {
+          throw new Error("missing pinned message should not fetch messages");
+        }
+        expect(
+          ((request as Api.channels.GetMessages).channel as Api.InputChannel)
+            .channelId.toString(),
+        ).toBe(channel.id.toString());
         return new Api.messages.Messages({
-          messages: [pinned],
+          messages: [options.pinned],
           topics: [],
           chats: [channel],
           users: [],
@@ -862,9 +1004,111 @@ describe("telegram channel details", () => {
         throw new Error("channel pins should not use client.getMessages");
       },
     };
+  }
+
+  test("channel view omits pinned message when Telegram returns null pinned id", async () => {
+    const channel = apiChannel(100, "firetg");
+    channel.title = "FireTG";
+
+    const client = channelClient(
+      channel,
+      new Api.ChannelFull({
+        id: channel.id,
+        about: "No pinned message",
+        readInboxMaxId: 0,
+        readOutboxMaxId: 0,
+        unreadCount: 0,
+        chatPhoto: new Api.PhotoEmpty({ id: bigInt(1) }),
+        notifySettings: new Api.PeerNotifySettings({}),
+        botInfo: [],
+        pinnedMsgId: null as never,
+        pts: 1,
+      }),
+    );
 
     await expect(
-      getChannelDetails(client as never, "firetg"),
+      getChannelDetails(client as never, resolverFor(client), "firetg"),
+    ).resolves.toEqual({
+      id: "100",
+      title: "FireTG",
+      username: "firetg",
+      description: "No pinned message",
+    });
+  });
+
+  test("known numeric channel ids resolve through dialogs", async () => {
+    const channel = apiChannel(100);
+    channel.title = "FireTG";
+
+    const base = channelClient(
+      channel,
+      new Api.ChannelFull({
+        id: channel.id,
+        about: "Known channel",
+        readInboxMaxId: 0,
+        readOutboxMaxId: 0,
+        unreadCount: 0,
+        chatPhoto: new Api.PhotoEmpty({ id: bigInt(1) }),
+        notifySettings: new Api.PeerNotifySettings({}),
+        botInfo: [],
+        pts: 1,
+      }),
+    );
+    const client = {
+      ...base,
+      getMe: async () => new Api.User({ id: bigInt(1) }),
+      async *iterDialogs() {
+        yield {
+          entity: channel,
+          inputEntity: new Api.InputPeerChannel({
+            channelId: channel.id,
+            accessHash: channel.accessHash ?? bigInt(0),
+          }),
+        };
+      },
+    };
+
+    await expect(
+      getChannelDetails(client as never, resolverFor(client), "100"),
+    ).resolves.toEqual({
+      id: "100",
+      title: "FireTG",
+      description: "Known channel",
+    });
+  });
+
+  test("channel view includes description and pinned message", async () => {
+    const channel = apiChannel(100, "firetg");
+    channel.title = "FireTG";
+    channel.verified = true;
+    channel.participantsCount = 123;
+    const pinned = new Api.Message({
+      id: 7,
+      date: 1_800_000_003,
+      message: "Start here",
+      peerId: new Api.PeerChannel({ channelId: channel.id }),
+    });
+
+    const client = channelClient(
+      channel,
+      new Api.ChannelFull({
+        id: channel.id,
+        about: "Agent-ready Telegram CLI",
+        participantsCount: 123,
+        readInboxMaxId: 0,
+        readOutboxMaxId: 0,
+        unreadCount: 0,
+        chatPhoto: new Api.PhotoEmpty({ id: bigInt(1) }),
+        notifySettings: new Api.PeerNotifySettings({}),
+        botInfo: [],
+        pinnedMsgId: 7,
+        pts: 1,
+      }),
+      { pinned },
+    );
+
+    await expect(
+      getChannelDetails(client as never, resolverFor(client), "firetg"),
     ).resolves.toEqual({
       id: "100",
       title: "FireTG",

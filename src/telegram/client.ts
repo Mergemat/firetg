@@ -15,6 +15,7 @@ import {
   listTelegramPinnedMessages,
   sendTelegramMessage,
 } from "./messages";
+import { createPeerResolver } from "./peers";
 import { getCurrentAccount, getPublicProfile } from "./profile";
 import type { FireTgClient } from "./types";
 
@@ -38,6 +39,7 @@ export async function createTeleprotoClient(
   }
 
   const dialogSource = createTeleprotoDialogSource(client);
+  const resolver = createPeerResolver(client, config.peersPath);
 
   return {
     login: (params) => loginTelegramAccount(client, config, params),
@@ -47,15 +49,16 @@ export async function createTeleprotoClient(
       }
     },
     getMe: () => getCurrentAccount(client),
-    getProfile: (username) => getPublicProfile(client, username),
-    getChannel: (channel) => getChannelDetails(client, channel),
-    sendMessage: (to, text) => sendTelegramMessage(client, to, text),
+    getProfile: (username) => getPublicProfile(client, resolver, username),
+    getChannel: (channel) => getChannelDetails(client, resolver, channel),
+    sendMessage: (to, text) => sendTelegramMessage(client, resolver, to, text),
     listFolders: async () =>
       listTelegramFolders(await dialogSource.getDialogFilters()),
     listDialogs: (options) => listDialogSummaries(dialogSource, options),
-    listMessages: (options) => listTelegramMessages(client, options),
-    listReplies: (options) => listTelegramReplies(client, options),
-    listPinnedMessages: (options) => listTelegramPinnedMessages(client, options),
+    listMessages: (options) => listTelegramMessages(client, resolver, options),
+    listReplies: (options) => listTelegramReplies(client, resolver, options),
+    listPinnedMessages: (options) =>
+      listTelegramPinnedMessages(client, resolver, options),
     disconnect: async () => {
       await client.destroy();
     },

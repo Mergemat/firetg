@@ -12,16 +12,22 @@ Owns Telegram account authentication state.
 - `auth logout` removes the stored Telegram session.
 - Credentials and session files are Auth implementation details.
 
+### Peer
+
+Represents any Telegram destination: a user, group chat, or channel.
+
+- Every command that accepts a username, id, or peer alias resolves it through one shared peer resolver.
+- Resolved peers (id plus access hash) are cached in `peers.json`, so a peer is resolved against Telegram at most once.
+- On a cache miss the resolver calls `contacts.ResolveUsername`; when Telegram flood-limits resolves it falls back to scanning dialogs and stores the flood deadline, refusing further resolve calls until it passes.
+- Stale cached access hashes self-heal: the operation re-resolves the peer once and retries.
+- Flood waits surface as `RATE_LIMITED` errors with `blockedUntil` and `remainingSeconds`.
+
 ### Profile
 
 Represents the currently authenticated Telegram account.
 
 - `profiles me` returns the current account profile.
-- `profiles get <username|user-id>` returns a public user profile, including the Telegram bio/description when available. Successful username lookups are recorded in resolver state.
-- `profiles queue --username <username[,username...]>` stores usernames for throttled profile resolution.
-- `profiles resolve <username...> --limit <n>` queues optional usernames, processes pending username resolves, and records Telegram flood waits locally.
-- `profiles status` shows queued, resolved, failed, and saved flood state for username resolution.
-- `profiles flood` shows or clears the saved username resolve flood state.
+- `profiles get <username|user-id>` returns a public user profile, including the Telegram bio/description when available.
 - Use Profile for account identity reads, not Auth.
 
 ### Channel

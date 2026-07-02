@@ -6,14 +6,7 @@ import {
 } from "./channels";
 import { dialogsListCommand } from "./dialogs";
 import { foldersListCommand } from "./folders";
-import {
-  meCommand,
-  profileFloodCommand,
-  profileQueueCommand,
-  profileResolveCommand,
-  profileStatusCommand,
-  profileViewCommand,
-} from "./me";
+import { meCommand, profileViewCommand } from "./me";
 import {
   messagesListCommand,
   messagesPinnedCommand,
@@ -35,14 +28,7 @@ export const commandModules: CommandModule[] = [
     summary: "Telegram account and user profiles",
     description:
       "Inspect the stored session account or a public Telegram user profile.",
-    commands: [
-      meCommand,
-      profileViewCommand,
-      profileResolveCommand,
-      profileStatusCommand,
-      profileQueueCommand,
-      profileFloodCommand,
-    ],
+    commands: [meCommand, profileViewCommand],
   },
   {
     scope: "channels",
