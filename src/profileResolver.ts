@@ -189,6 +189,24 @@ export function markProfileResolveSuccess(
   delete item.error;
 }
 
+export function recordProfileResolveSuccess(
+  state: ProfileResolveState,
+  username: string,
+  profile: Profile,
+  now: Date,
+): ProfileResolveQueueItem {
+  const normalizedUsername = normalizeProfileUsername(username);
+  const item =
+    findQueueItem(state, normalizedUsername) ??
+    createProfileResolveItem(normalizedUsername, now);
+
+  if (!state.queue.includes(item)) state.queue.push(item);
+
+  markProfileResolveAttempt(item, now);
+  markProfileResolveSuccess(item, profile, now);
+  return item;
+}
+
 export function markProfileResolveFailure(
   item: ProfileResolveQueueItem,
   error: string,
@@ -311,6 +329,18 @@ function findQueueItem(
 ): ProfileResolveQueueItem | undefined {
   const key = profileUsernameKey(username);
   return state.queue.find((item) => profileUsernameKey(item.username) === key);
+}
+
+function createProfileResolveItem(
+  username: string,
+  now: Date,
+): ProfileResolveQueueItem {
+  return {
+    username,
+    status: "pending",
+    queuedAt: now.toISOString(),
+    attempts: 0,
+  };
 }
 
 function profileUsernameKey(username: string): string {

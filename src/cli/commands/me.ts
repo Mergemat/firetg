@@ -1,24 +1,16 @@
 import { readPositiveInt } from "../args";
-import { errorMessage, writeError, writeJson } from "../output";
+import { writeError, writeJson } from "../output";
 import {
-  activeProfileResolveBlock,
-  enqueueProfileUsernames,
-  markProfileResolveAttempt,
-  markProfileResolveFailure,
-  markProfileResolveSuccess,
-  parseFloodWaitSeconds,
-  pendingProfileResolveItems,
-  profileResolveSummary,
-  readProfileResolveState,
-  readProfileUsernameList,
-  recordProfileResolveFlood,
-  writeProfileResolveState,
-} from "../../profileResolver";
-import {
-  commandNow,
-  matchesScopedCommand,
-  runWithTelegram,
-} from "./shared";
+  getOwnProfile,
+  getProfileStatus,
+  getPublicProfile,
+  parseProfileUsernames,
+  profileLookupFromInput,
+  queueProfiles,
+  resolveProfiles,
+  type ProfileOperationResult,
+} from "../../profiles";
+import { matchesScopedCommand } from "./shared";
 import type { CommandSpec } from "./types";
 import type { CliContext } from "../types";
 
@@ -39,11 +31,12 @@ export const meCommand: CommandSpec = {
   },
   matches: (parsed) =>
     matchesScopedCommand(parsed, "profiles", "me") || parsed.command === "me",
-  run: ({ context }) =>
-    runWithTelegram(context, async (telegram) => {
-      writeJson(context, true, { data: await telegram.getMe() });
-      return 0;
-    }),
+  async run({ context }) {
+    return writeProfileOperationResult(
+      context,
+      await getOwnProfile(profileRuntime(context)),
+    );
+  },
 };
 
 export const profileViewCommand: CommandSpec = {
@@ -117,44 +110,15 @@ export const profileViewCommand: CommandSpec = {
     }
 
     const lookup = positionalLookup ?? username ?? id ?? "";
-    const usesUsernameResolve = !id && !isNumericId(lookup);
+    const lookupKind = id ? "id" : username ? "username" : undefined;
 
-    if (usesUsernameResolve) {
-      const state = await readProfileResolveState(context.env);
-      const previousBlockedUntil = state.blockedUntil;
-      const block = activeProfileResolveBlock(state, commandNow(context));
-      if (block) {
-        writeProfileResolveBlockedError(context, block);
-        return 2;
-      }
-      if (previousBlockedUntil && !state.blockedUntil) {
-        await writeProfileResolveState(context.env, state);
-      }
-    }
-
-    return runWithTelegram(context, async (telegram) => {
-      writeJson(context, true, {
-        data: await telegram.getProfile(lookup),
-      });
-      return 0;
-    }, {
-      onError: async (error) => {
-        if (!usesUsernameResolve) return undefined;
-
-        const waitSeconds = parseFloodWaitSeconds(error);
-        if (waitSeconds === undefined) return undefined;
-
-        const state = await readProfileResolveState(context.env);
-        const block = recordProfileResolveFlood(
-          state,
-          waitSeconds,
-          commandNow(context),
-        );
-        await writeProfileResolveState(context.env, state);
-        writeProfileResolveBlockedError(context, block);
-        return 2;
-      },
-    });
+    return writeProfileOperationResult(
+      context,
+      await getPublicProfile(
+        profileRuntime(context),
+        profileLookupFromInput(lookup, lookupKind),
+      ),
+    );
   },
 };
 
@@ -186,26 +150,19 @@ export const profileQueueCommand: CommandSpec = {
   },
   matches: (parsed) => matchesScopedCommand(parsed, "profiles", "queue"),
   async run({ parsed, context }) {
-    const state = await readProfileResolveState(context.env);
-    const now = commandNow(context);
-    const usernames = readProfileUsernameList(
+    const usernames = parseProfileUsernames(
       parsed.flags.get("username") ?? parsed.flags.get("usernames"),
     );
 
     if (usernames.length === 0) {
-      writeJson(context, true, { data: profileResolveSummary(state, now) });
+      writeJson(context, true, {
+        data: await getProfileStatus(profileRuntime(context)),
+      });
       return 0;
     }
 
-    const result = enqueueProfileUsernames(state, usernames, now);
-    await writeProfileResolveState(context.env, state);
-
     writeJson(context, true, {
-      data: {
-        ...profileResolveSummary(state, now),
-        enqueued: result.enqueued,
-        skipped: result.skipped,
-      },
+      data: await queueProfiles(profileRuntime(context), usernames),
     });
     return 0;
   },
@@ -245,95 +202,12 @@ export const profileResolveCommand: CommandSpec = {
   matches: (parsed) => matchesScopedCommand(parsed, "profiles", "resolve"),
   async run({ parsed, context }) {
     const limit = Math.max(1, readPositiveInt(parsed.flags, "limit", 1));
-    const state = await readProfileResolveState(context.env);
-    const now = commandNow(context);
     const usernames = readProfileResolveUsernames(parsed);
-    const queueResult = usernames.length
-      ? enqueueProfileUsernames(state, usernames, now)
-      : undefined;
-    const block = activeProfileResolveBlock(state, now);
 
-    if (block) {
-      if (queueResult) await writeProfileResolveState(context.env, state);
-      writeJson(context, true, {
-        data: {
-          ...profileResolveSummary(state, now),
-          ...profileResolveQueueResult(queueResult),
-          processed: [],
-          errors: [],
-        },
-      });
-      return 0;
-    }
-
-    await writeProfileResolveState(context.env, state);
-    const pending = pendingProfileResolveItems(state, limit);
-    if (pending.length === 0) {
-      writeJson(context, true, {
-        data: {
-          ...profileResolveSummary(state, now),
-          ...profileResolveQueueResult(queueResult),
-          processed: [],
-          errors: [],
-        },
-      });
-      return 0;
-    }
-
-    return runWithTelegram(context, async (telegram) => {
-      const processed: unknown[] = [];
-      const errors: unknown[] = [];
-
-      for (const item of pending) {
-        const attemptAt = commandNow(context);
-        markProfileResolveAttempt(item, attemptAt);
-
-        try {
-          const profile = await telegram.getProfile(item.username);
-          markProfileResolveSuccess(item, profile, commandNow(context));
-          processed.push({ username: item.username, profile });
-          await writeProfileResolveState(context.env, state);
-        } catch (error) {
-          const waitSeconds = parseFloodWaitSeconds(error);
-          if (waitSeconds !== undefined) {
-            const floodBlock = recordProfileResolveFlood(
-              state,
-              waitSeconds,
-              commandNow(context),
-            );
-            item.error = errorMessage(error);
-            await writeProfileResolveState(context.env, state);
-            writeJson(context, true, {
-              data: {
-                ...profileResolveSummary(state, commandNow(context)),
-                ...profileResolveQueueResult(queueResult),
-                blocked: true,
-                blockedUntil: floodBlock.blockedUntil,
-                remainingSeconds: floodBlock.remainingSeconds,
-                processed,
-                errors,
-              },
-            });
-            return 0;
-          }
-
-          const message = errorMessage(error);
-          markProfileResolveFailure(item, message, commandNow(context));
-          errors.push({ username: item.username, error: message });
-          await writeProfileResolveState(context.env, state);
-        }
-      }
-
-      writeJson(context, true, {
-        data: {
-          ...profileResolveSummary(state, commandNow(context)),
-          ...profileResolveQueueResult(queueResult),
-          processed,
-          errors,
-        },
-      });
-      return 0;
-    });
+    return writeProfileOperationResult(
+      context,
+      await resolveProfiles(profileRuntime(context), { usernames, limit }),
+    );
   },
 };
 
@@ -363,17 +237,11 @@ export const profileStatusCommand: CommandSpec = {
   },
   matches: (parsed) => matchesScopedCommand(parsed, "profiles", "status"),
   async run({ parsed, context }) {
-    const state = await readProfileResolveState(context.env);
-
-    if (parsed.flags.has("clear-flood")) {
-      delete state.blockedUntil;
-      await writeProfileResolveState(context.env, state);
-    }
-
-    const now = commandNow(context);
-    activeProfileResolveBlock(state, now);
-    await writeProfileResolveState(context.env, state);
-    writeJson(context, true, { data: profileResolveSummary(state, now) });
+    writeJson(context, true, {
+      data: await getProfileStatus(profileRuntime(context), {
+        clearFlood: parsed.flags.has("clear-flood"),
+      }),
+    });
     return 0;
   },
 };
@@ -405,17 +273,11 @@ export const profileFloodCommand: CommandSpec = {
   },
   matches: (parsed) => matchesScopedCommand(parsed, "profiles", "flood"),
   async run({ parsed, context }) {
-    const state = await readProfileResolveState(context.env);
-
-    if (parsed.flags.has("clear")) {
-      delete state.blockedUntil;
-      await writeProfileResolveState(context.env, state);
-    }
-
-    const now = commandNow(context);
-    activeProfileResolveBlock(state, now);
-    await writeProfileResolveState(context.env, state);
-    writeJson(context, true, { data: profileResolveSummary(state, now) });
+    writeJson(context, true, {
+      data: await getProfileStatus(profileRuntime(context), {
+        clearFlood: parsed.flags.has("clear"),
+      }),
+    });
     return 0;
   },
 };
@@ -424,7 +286,7 @@ function readProfileResolveUsernames(parsed: {
   flags: Map<string, string>;
   positionals: string[];
 }): string[] {
-  return readProfileUsernameList(
+  return parseProfileUsernames(
     [
       parsed.flags.get("username"),
       parsed.flags.get("usernames"),
@@ -435,32 +297,24 @@ function readProfileResolveUsernames(parsed: {
   );
 }
 
-function isNumericId(value: string): boolean {
-  return /^\d+$/.test(value);
+function profileRuntime(context: CliContext) {
+  return {
+    env: context.env,
+    createTelegram: context.createTelegram,
+    now: context.now,
+  };
 }
 
-function profileResolveQueueResult(
-  result?: { enqueued: string[]; skipped: string[] },
-): { enqueued?: string[]; skipped?: string[] } {
-  return result
-    ? {
-        enqueued: result.enqueued,
-        skipped: result.skipped,
-      }
-    : {};
-}
-
-function writeProfileResolveBlockedError(
+function writeProfileOperationResult<T>(
   context: CliContext,
-  block: { blockedUntil: string; remainingSeconds: number },
-) {
-  writeError(
-    context,
-    "RATE_LIMITED",
-    `Telegram username resolves are blocked until ${block.blockedUntil}`,
-    {
-      blockedUntil: block.blockedUntil,
-      remainingSeconds: block.remainingSeconds,
-    },
-  );
+  result: ProfileOperationResult<T>,
+): number {
+  if (result.ok) {
+    writeJson(context, true, { data: result.data });
+    return 0;
+  }
+
+  const { code, message, exitCode, ...details } = result.error;
+  writeError(context, code, message, details);
+  return exitCode;
 }
