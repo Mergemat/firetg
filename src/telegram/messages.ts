@@ -261,11 +261,17 @@ async function findKnownDialogByUsername(
   client: TelegramClient,
   username: string,
 ): Promise<TeleprotoDialog | undefined> {
-  return (await client.getDialogs({})).find((dialog) =>
-    dialogEntityUsernames(dialog).some(
-      (candidate) => candidate.toLowerCase() === username,
-    ),
-  );
+  for await (const dialog of client.iterDialogs({})) {
+    if (
+      dialogEntityUsernames(dialog).some(
+        (candidate) => candidate.toLowerCase() === username,
+      )
+    ) {
+      return dialog;
+    }
+  }
+
+  return undefined;
 }
 
 function dialogEntityUsernames(dialog: TeleprotoDialog): string[] {
