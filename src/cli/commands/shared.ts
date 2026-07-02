@@ -1,5 +1,6 @@
 import { readTelegramConfig } from "../../config";
 import { createTeleprotoClient, type FireTgClient } from "../../telegram";
+import { parseFloodWaitSeconds, RateLimitedError } from "../../telegram/errors";
 import type { ParsedArgs } from "../args";
 import { errorMessage, writeError } from "../output";
 import type { CliContext } from "../types";
@@ -35,11 +36,38 @@ export async function runWithTelegram(
     const handled = await options.onError?.(error);
     if (handled !== undefined) return handled;
 
-    writeError(context, "TELEGRAM_ERROR", errorMessage(error));
-    return 2;
+    return writeTelegramError(context, error);
   } finally {
     await telegram?.disconnect?.();
   }
+}
+
+function writeTelegramError(context: CliContext, error: unknown): number {
+  if (error instanceof RateLimitedError) {
+    writeError(context, "RATE_LIMITED", error.message, {
+      blockedUntil: error.blockedUntil,
+      remainingSeconds: error.remainingSeconds,
+    });
+    return 2;
+  }
+
+  const waitSeconds = parseFloodWaitSeconds(error);
+  if (waitSeconds !== undefined) {
+    const blockedUntil = new Date(
+      commandNow(context).getTime() + waitSeconds * 1000,
+    ).toISOString();
+
+    writeError(
+      context,
+      "RATE_LIMITED",
+      `Telegram flood wait: retry after ${blockedUntil}`,
+      { blockedUntil, remainingSeconds: waitSeconds },
+    );
+    return 2;
+  }
+
+  writeError(context, "TELEGRAM_ERROR", errorMessage(error));
+  return 2;
 }
 
 export function commandNow(context: CliContext): Date {
