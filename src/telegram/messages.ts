@@ -13,6 +13,9 @@ type MessageReadState = {
   readOutboxMaxId: number;
 };
 
+type MessageChat = string | Api.TypeInputPeer;
+type TeleprotoDialog = Awaited<ReturnType<TelegramClient["getDialogs"]>>[number];
+
 export async function sendTelegramMessage(
   client: TelegramClient,
   to: string,
@@ -50,11 +53,12 @@ export async function listTelegramMessages(
     search?: string;
   },
 ): Promise<MessageSummary[]> {
-  const messages = await client.getMessages(options.chat, {
+  const chat = await resolveMessageChat(client, options.chat);
+  const messages = await client.getMessages(chat, {
     limit: options.limit,
     search: options.search,
   });
-  const readState = await getMessageReadState(client, options.chat);
+  const readState = await getMessageReadState(client, chat);
 
   return serializeMessages(messages, readState);
 }
@@ -66,11 +70,12 @@ export async function listTelegramPinnedMessages(
     limit: number;
   },
 ): Promise<MessageSummary[]> {
-  const messages = await client.getMessages(options.chat, {
+  const chat = await resolveMessageChat(client, options.chat);
+  const messages = await client.getMessages(chat, {
     limit: options.limit,
     filter: new Api.InputMessagesFilterPinned(),
   });
-  const readState = await getMessageReadState(client, options.chat);
+  const readState = await getMessageReadState(client, chat);
 
   return serializeMessages(messages, readState);
 }
@@ -84,13 +89,14 @@ export async function listTelegramReplies(
     limit: number;
   },
 ): Promise<MessageSummary[]> {
+  const chat = await resolveMessageChat(client, options.chat);
   const replies = await listRepliesFromSenders(client, {
-    chat: options.chat,
+    chat,
     messageId: options.messageId,
     senders: options.from,
     limit: options.limit,
   });
-  const readState = await getMessageReadState(client, options.chat);
+  const readState = await getMessageReadState(client, chat);
 
   return serializeMessages(replies, readState);
 }
@@ -155,7 +161,7 @@ function sortMessagesNewestFirst(messages: Api.Message[]): Api.Message[] {
 
 async function getMessageReadState(
   client: TelegramClient,
-  chat: string,
+  chat: MessageChat,
 ): Promise<MessageReadState | undefined> {
   const peer = await client.getInputEntity(chat);
   const response = await client.invoke(
@@ -178,7 +184,7 @@ async function getMessageReadState(
 async function listRepliesFromSenders(
   client: TelegramClient,
   options: {
-    chat: string;
+    chat: MessageChat;
     messageId: number;
     senders: string[];
     limit: number;
@@ -204,7 +210,7 @@ async function listRepliesFromSenders(
 async function listRepliesFromSender(
   client: TelegramClient,
   options: {
-    chat: string;
+    chat: MessageChat;
     messageId: number;
     sender: string | Api.User;
     limit: number;
@@ -238,6 +244,51 @@ async function resolveMessageUser(
   if (!isUserId(normalized)) return normalized;
 
   return getKnownUserEntityById(client, normalized);
+}
+
+async function resolveMessageChat(
+  client: TelegramClient,
+  chat: string,
+): Promise<MessageChat> {
+  const username = normalizeMessageChatUsername(chat);
+  if (!username) return chat.trim();
+
+  const dialog = await findKnownDialogByUsername(client, username);
+  return dialog?.inputEntity ?? chat.trim();
+}
+
+async function findKnownDialogByUsername(
+  client: TelegramClient,
+  username: string,
+): Promise<TeleprotoDialog | undefined> {
+  return (await client.getDialogs({})).find((dialog) =>
+    dialogEntityUsernames(dialog).some(
+      (candidate) => candidate.toLowerCase() === username,
+    ),
+  );
+}
+
+function dialogEntityUsernames(dialog: TeleprotoDialog): string[] {
+  const entity = dialog.entity;
+  if (!(entity instanceof Api.User || entity instanceof Api.Channel)) {
+    return [];
+  }
+
+  return [
+    entity.username,
+    ...(entity.usernames ?? [])
+      .filter((username) => username instanceof Api.Username && username.active)
+      .map((username) => username.username),
+  ].filter((username): username is string => !!username);
+}
+
+function normalizeMessageChatUsername(chat: string): string | undefined {
+  const username = normalizeUser(chat).toLowerCase();
+  if (!username || isUserId(username)) return undefined;
+  if (["me", "self", "this"].includes(username)) return undefined;
+  if (!/^[a-z0-9_]{5,32}$/.test(username)) return undefined;
+
+  return username;
 }
 
 function uniqueMessages(messages: Api.Message[]): Api.Message[] {
