@@ -25,16 +25,16 @@ function inputUser(id: number): Api.InputPeerUser {
 }
 
 function messageReadStateClient(
-  expectedChat: string,
+  expectedChat: string | Api.TypeInputPeer,
   readState: { readInboxMaxId: number; readOutboxMaxId: number } = {
     readInboxMaxId: 0,
     readOutboxMaxId: 0,
   },
+  inputPeer: Api.TypeInputPeer = new Api.InputPeerChat({ chatId: bigInt(100) }),
 ) {
-  const inputPeer = new Api.InputPeerChat({ chatId: bigInt(100) });
-
   return {
-    getInputEntity: async (chat: string) => {
+    getDialogs: async () => [],
+    getInputEntity: async (chat: string | Api.TypeInputPeer) => {
       expect(chat).toBe(expectedChat);
       return inputPeer;
     },
@@ -273,6 +273,52 @@ describe("telegram message sending", () => {
 });
 
 describe("telegram message listing", () => {
+  test("known username chats use dialog input peers before listing", async () => {
+    const inputPeer = inputUser(42);
+    const user = new Api.User({
+      id: bigInt(42),
+      accessHash: bigInt(420),
+      username: "UserName",
+      firstName: "Known",
+    });
+    let requestedChat: unknown;
+
+    const client = {
+      ...messageReadStateClient(inputPeer, undefined, inputPeer),
+      getDialogs: async () => [{ entity: user, inputEntity: inputPeer }],
+      getMessages: async (
+        chat: unknown,
+        params: { limit: number; search?: string },
+      ) => {
+        requestedChat = chat;
+        expect(chat).toBe(inputPeer);
+        expect(params).toEqual({ limit: 1, search: undefined });
+
+        return [
+          new Api.Message({
+            id: 12,
+            date: 1_800_000_012,
+            message: "from known dialog",
+          }),
+        ];
+      },
+    };
+
+    await expect(
+      listTelegramMessages(client as never, {
+        chat: "@username",
+        limit: 1,
+      }),
+    ).resolves.toEqual([
+      {
+        id: 12,
+        date: 1_800_000_012,
+        text: "from known dialog",
+      },
+    ]);
+    expect(requestedChat).toBe(inputPeer);
+  });
+
   test("message history is newest first", async () => {
     const client = {
       getMessages: async (
