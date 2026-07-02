@@ -320,6 +320,101 @@ describe("firetg cli", () => {
     });
   });
 
+  test("profiles get records username resolves for status and batch resolve", async () => {
+    const getHarness = createHarness();
+    const resolveHarness = createHarness();
+    const statusHarness = createHarness();
+    const resolved: string[] = [];
+    const { env } = await createStoredAuthEnv();
+
+    const getExitCode = await runCli(["profiles", "get", "PaninaOk"], {
+      env,
+      io: getHarness.io,
+      now: () => new Date("2026-07-01T00:00:00.000Z"),
+      createTelegram: async () => fakeTelegram({
+        getProfile: async (user) => ({
+          id: "1",
+          username: user,
+          firstName: "Panina",
+        }),
+      }),
+    });
+
+    const resolveExitCode = await runCli(
+      ["profiles", "resolve", "PaninaOk", "OtherName", "--limit", "1"],
+      {
+        env,
+        io: resolveHarness.io,
+        now: () => new Date("2026-07-01T00:00:10.000Z"),
+        createTelegram: async () => fakeTelegram({
+          getProfile: async (user) => {
+            resolved.push(user);
+            return {
+              id: "2",
+              username: user,
+              firstName: "Other",
+            };
+          },
+        }),
+      },
+    );
+
+    const statusExitCode = await runCli(["profiles", "status"], {
+      env,
+      io: statusHarness.io,
+      now: () => new Date("2026-07-01T00:00:20.000Z"),
+    });
+
+    expect(getExitCode).toBe(0);
+    expect(resolveExitCode).toBe(0);
+    expect(statusExitCode).toBe(0);
+    expect(resolved).toEqual(["OtherName"]);
+    expect(JSON.parse(resolveHarness.stdout.join(""))).toMatchObject({
+      blocked: false,
+      pending: 0,
+      resolved: 2,
+      failed: 0,
+      enqueued: ["OtherName"],
+      skipped: ["PaninaOk"],
+      processed: [
+        {
+          username: "OtherName",
+          profile: {
+            id: "2",
+            username: "OtherName",
+          },
+        },
+      ],
+      errors: [],
+    });
+    expect(JSON.parse(statusHarness.stdout.join(""))).toMatchObject({
+      blocked: false,
+      pending: 0,
+      resolved: 2,
+      failed: 0,
+      queue: [
+        {
+          username: "PaninaOk",
+          status: "resolved",
+          attempts: 1,
+          profile: {
+            id: "1",
+            username: "PaninaOk",
+          },
+        },
+        {
+          username: "OtherName",
+          status: "resolved",
+          attempts: 1,
+          profile: {
+            id: "2",
+            username: "OtherName",
+          },
+        },
+      ],
+    });
+  });
+
   test("profiles view records username flood waits", async () => {
     const harness = createHarness();
     const { env } = await createStoredAuthEnv();
