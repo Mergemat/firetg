@@ -536,6 +536,38 @@ describe("peer resolution", () => {
 });
 
 describe("telegram message sending", () => {
+  test("text messages pass scheduled delivery to Telegram", async () => {
+    let sentParams: unknown;
+
+    const client = {
+      sendMessage: async (_entity: unknown, params: unknown) => {
+        sentParams = params;
+        return new Api.Message({
+          id: 9,
+          date: 1_800_000_004,
+          message: "hello later",
+        });
+      },
+    };
+
+    await expect(
+      sendTelegramMessage(client as never, resolverFor(client), "launch-team", {
+        text: "hello later",
+        scheduledAt: 1_800_003_600,
+      }),
+    ).resolves.toEqual({
+      id: 9,
+      date: 1_800_000_004,
+      text: "hello later",
+    });
+
+    expect(sentParams).toEqual({
+      message: "hello later",
+      parseMode: undefined,
+      schedule: 1_800_003_600,
+    });
+  });
+
   test("attachments are sent through sendFile", async () => {
     let textSent = false;
     let sentEntity: unknown;
@@ -575,6 +607,41 @@ describe("telegram message sending", () => {
       caption: "caption",
       forceDocument: true,
       parseMode: undefined,
+    });
+  });
+
+  test("attachments pass scheduled delivery to Telegram", async () => {
+    let sentParams: unknown;
+
+    const client = {
+      sendFile: async (_entity: unknown, params: unknown) => {
+        sentParams = params;
+        return new Api.Message({
+          id: 11,
+          date: 1_800_000_005,
+          message: "caption",
+        });
+      },
+    };
+
+    await expect(
+      sendTelegramMessage(client as never, resolverFor(client), "launch-team", {
+        text: "caption",
+        attachment: "/tmp/photo.jpg",
+        scheduledAt: 1_800_003_600,
+      }),
+    ).resolves.toEqual({
+      id: 11,
+      date: 1_800_000_005,
+      text: "caption",
+    });
+
+    expect(sentParams).toEqual({
+      file: "/tmp/photo.jpg",
+      caption: "caption",
+      forceDocument: false,
+      parseMode: undefined,
+      scheduleDate: 1_800_003_600,
     });
   });
 });

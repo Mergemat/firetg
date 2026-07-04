@@ -44,7 +44,7 @@ Represents a Telegram broadcast channel.
 
 Represents Telegram message actions for a peer.
 
-- `messages send` sends a message to a peer.
+- `messages send` sends a message to a peer, immediately or through Telegram-native scheduled delivery with `--schedule-at`.
 - `messages list` reads message history for a chat, newest first.
 - `messages search` searches a chat by hashtag, or searches replies to one message from selected senders.
 - `messages pinned` reads pinned messages for a chat, newest first.

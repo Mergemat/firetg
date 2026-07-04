@@ -608,6 +608,83 @@ describe("firetg cli", () => {
     });
   });
 
+  test("messages send accepts ISO scheduled delivery", async () => {
+    const harness = createHarness();
+    const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
+    const { env } = await createStoredAuthEnv();
+    const scheduleAt = new Date(Date.now() + 3_600_000).toISOString();
+    const scheduledAt = Math.floor(Date.parse(scheduleAt) / 1000);
+
+    const exitCode = await runCli(
+      [
+        "messages",
+        "send",
+        "--username",
+        "telegram",
+        "--text",
+        "hello later",
+        "--schedule-at",
+        scheduleAt,
+      ],
+      {
+        env,
+        io: harness.io,
+        createTelegram: async () => fakeTelegram({
+          sendMessage: async (to, message) => {
+            sent.push({ to, message });
+            return { id: 11, date: scheduledAt, text: "hello later" };
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(sent).toEqual([
+      {
+        to: "telegram",
+        message: { text: "hello later", scheduledAt },
+      },
+    ]);
+  });
+
+  test("messages send accepts unix scheduled delivery", async () => {
+    const harness = createHarness();
+    const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
+    const { env } = await createStoredAuthEnv();
+    const scheduledAt = Math.floor(Date.now() / 1000) + 3600;
+
+    const exitCode = await runCli(
+      [
+        "messages",
+        "send",
+        "--id",
+        "116040563",
+        "--text",
+        "hello later",
+        "--schedule-at",
+        String(scheduledAt),
+      ],
+      {
+        env,
+        io: harness.io,
+        createTelegram: async () => fakeTelegram({
+          sendMessage: async (to, message) => {
+            sent.push({ to, message });
+            return { id: 12, date: scheduledAt, text: "hello later" };
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(sent).toEqual([
+      {
+        to: "116040563",
+        message: { text: "hello later", scheduledAt },
+      },
+    ]);
+  });
+
   test("messages send accepts a file attachment with a caption", async () => {
     const harness = createHarness();
     const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
@@ -655,6 +732,52 @@ describe("firetg cli", () => {
       date: 1_800_000_002,
       text: "caption",
     });
+  });
+
+  test("messages send accepts scheduled file attachments", async () => {
+    const harness = createHarness();
+    const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
+    const { env } = await createStoredAuthEnv();
+    const directory = await mkdtemp(join(tmpdir(), "firetg-attachment-"));
+    const attachment = join(directory, "photo.jpg");
+    const scheduledAt = Math.floor(Date.now() / 1000) + 3600;
+    await writeFile(attachment, "image");
+
+    const exitCode = await runCli(
+      [
+        "messages",
+        "send",
+        "--username",
+        "telegram",
+        "--file",
+        attachment,
+        "--schedule-at",
+        String(scheduledAt),
+      ],
+      {
+        env,
+        io: harness.io,
+        createTelegram: async () => fakeTelegram({
+          sendMessage: async (to, message) => {
+            sent.push({ to, message });
+            return { id: 13, date: scheduledAt };
+          },
+        }),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(sent).toEqual([
+      {
+        to: "telegram",
+        message: {
+          text: undefined,
+          attachment,
+          forceDocument: false,
+          scheduledAt,
+        },
+      },
+    ]);
   });
 
   test("messages send accepts the attachment alias and document mode", async () => {
@@ -727,6 +850,61 @@ describe("firetg cli", () => {
         code: "INPUT_ERROR",
         message: "messages send accepts only one destination flag",
       },
+    });
+  });
+
+  test("messages send rejects invalid scheduled delivery before loading config", async () => {
+    const harness = createHarness();
+
+    const exitCode = await runCli(
+      [
+        "messages",
+        "send",
+        "--username",
+        "telegram",
+        "--text",
+        "hello",
+        "--schedule-at",
+        "not-a-date",
+      ],
+      {
+        env: {},
+        io: harness.io,
+      },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(harness.stdout.join("")).error).toEqual({
+      code: "INPUT_ERROR",
+      message:
+        "messages send requires --schedule-at to be ISO-8601 date-time or unix seconds",
+    });
+  });
+
+  test("messages send rejects past scheduled delivery before loading config", async () => {
+    const harness = createHarness();
+
+    const exitCode = await runCli(
+      [
+        "messages",
+        "send",
+        "--username",
+        "telegram",
+        "--text",
+        "hello",
+        "--schedule-at",
+        "1",
+      ],
+      {
+        env: {},
+        io: harness.io,
+      },
+    );
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(harness.stdout.join("")).error).toEqual({
+      code: "INPUT_ERROR",
+      message: "messages send requires --schedule-at to be in the future",
     });
   });
 
