@@ -29,6 +29,8 @@ export type SendMessageInput = {
   text?: string;
   attachment?: string;
   forceDocument?: boolean;
+  /** Unix timestamp in seconds for Telegram-native scheduled delivery. */
+  scheduledAt?: number;
 };
 
 export type DialogSummary = {
