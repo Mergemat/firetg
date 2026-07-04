@@ -7,7 +7,7 @@ import type { CommandSpec } from "./types";
 export const sendCommand: CommandSpec = {
   id: "messages.send",
   usage:
-    "messages send (--username <username> | --id <user-id>) (--text <message> | --file <path>) [--document]",
+    "messages send (--username <username> | --id <user-id>) (--text <message> | --file <path>) [--document] [--schedule-at <when>]",
   help: {
     summary: "Send a message",
     description:
@@ -46,6 +46,11 @@ export const sendCommand: CommandSpec = {
         name: "--force-document",
         summary: "Alias for --document",
       },
+      {
+        name: "--schedule-at",
+        value: "<when>",
+        summary: "Schedule delivery at ISO-8601 date-time or unix seconds",
+      },
     ],
     examples: [
       {
@@ -63,6 +68,11 @@ export const sendCommand: CommandSpec = {
       {
         command: "firetg messages send --username telegram --file ./report.pdf --document",
         summary: "Send a document attachment",
+      },
+      {
+        command:
+          'firetg messages send --username telegram --text "hello later" --schedule-at 2026-07-05T15:00',
+        summary: "Schedule a message for later delivery",
       },
     ],
     aliases: ["send"],
@@ -86,6 +96,7 @@ export const sendCommand: CommandSpec = {
     ].filter((destination): destination is string => !!destination);
     const to = destinations[0];
     const text = parsed.flags.get("text");
+    const scheduledAtFlag = parsed.flags.get("schedule-at");
     const hasFile = parsed.flags.has("file");
     const hasAttachment = parsed.flags.has("attachment");
     const attachment = parsed.flags.get("file") ?? parsed.flags.get("attachment");
@@ -126,6 +137,25 @@ export const sendCommand: CommandSpec = {
       return 1;
     }
 
+    const scheduledAt = parseScheduledAt(scheduledAtFlag);
+    if (parsed.flags.has("schedule-at") && scheduledAt === undefined) {
+      writeError(
+        context,
+        "INPUT_ERROR",
+        "messages send requires --schedule-at to be ISO-8601 date-time or unix seconds",
+      );
+      return 1;
+    }
+
+    if (scheduledAt !== undefined && scheduledAt <= Math.floor(Date.now() / 1000)) {
+      writeError(
+        context,
+        "INPUT_ERROR",
+        "messages send requires --schedule-at to be in the future",
+      );
+      return 1;
+    }
+
     const attachmentPath = attachment ? resolve(attachment) : undefined;
     if (attachmentPath) {
       const attachmentStat = await stat(attachmentPath).catch(() => undefined);
@@ -150,11 +180,28 @@ export const sendCommand: CommandSpec = {
                 forceDocument:
                   parsed.flags.has("document") ||
                   parsed.flags.has("force-document"),
+                ...(scheduledAt === undefined ? {} : { scheduledAt }),
               }
-            : text ?? "",
+            : scheduledAt === undefined
+              ? text ?? ""
+              : { text: text ?? "", scheduledAt },
         ),
       });
       return 0;
     });
   },
 };
+
+function parseScheduledAt(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+
+  if (/^\d+$/.test(value)) {
+    const timestamp = Number(value);
+    return Number.isSafeInteger(timestamp) ? timestamp : undefined;
+  }
+
+  const timestampMs = Date.parse(value);
+  if (Number.isNaN(timestampMs)) return undefined;
+
+  return Math.floor(timestampMs / 1000);
+}

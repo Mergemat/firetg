@@ -27,10 +27,16 @@ export async function sendTelegramMessage(
           caption: input.text,
           forceDocument: input.forceDocument ?? false,
           parseMode: undefined,
+          ...(input.scheduledAt === undefined
+            ? {}
+            : { scheduleDate: input.scheduledAt }),
         })
       : await client.sendMessage(entity, {
           message: input.text,
           parseMode: undefined,
+          ...(input.scheduledAt === undefined
+            ? {}
+            : { schedule: input.scheduledAt }),
         });
 
     return serializeSentMessage(sentMessage);

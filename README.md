@@ -61,6 +61,7 @@ firetg messages send --username telegram --text "hello"
 firetg messages send --id 123456789 --text "hello"
 firetg messages send --username telegram --file ./photo.jpg --text "caption"
 firetg messages send --username telegram --file ./report.pdf --document
+firetg messages send --username telegram --text "hello later" --schedule-at 2026-07-05T15:00
 firetg messages list --chat me --limit 20
 firetg messages list --chat me --search deploy --limit 10
 firetg messages search --chat launch-team --hashtag "#deploy" --limit 100
