@@ -99,26 +99,49 @@ async function runAuthLogin(
 
 async function runAuthLogout(context: CliContext): Promise<number> {
   let telegram: FireTgClient | undefined;
+  let revokeError: unknown;
+  let remoteRevoked = false;
 
   try {
-    const config = await loadTelegramConfig(context.store, {
-      requireAuth: false,
-    });
-    if ((await context.store.hasTelegramStorage()) || config.legacySession) {
-      telegram = await (context.createTelegram ?? createMtcuteClient)(config);
-      await telegram.logout();
-      await telegram.disconnect();
+    try {
+      const config = await loadTelegramConfig(context.store, {
+        requireAuth: false,
+      });
+      if ((await context.store.hasTelegramStorage()) || config.legacySession) {
+        telegram = await (context.createTelegram ?? createMtcuteClient)(config);
+        await telegram.logout();
+        remoteRevoked = true;
+      }
+    } catch (error) {
+      revokeError = error;
+    } finally {
+      await telegram?.disconnect().catch(() => undefined);
       telegram = undefined;
     }
 
-    await context.store.removeTelegramStorage();
-    await context.store.removeLegacyState();
+    try {
+      await Promise.all([
+        context.store.removeTelegramStorage(),
+        context.store.removeLegacyState(),
+      ]);
+    } catch (error) {
+      return writeTelegramError(context, error, "auth", {
+        localRemoved: false,
+        remoteRevoked,
+      });
+    }
+
+    if (revokeError !== undefined) {
+      return writeTelegramError(context, revokeError, "auth", {
+        localRemoved: true,
+        remoteRevoked: false,
+      });
+    }
+
     writeSuccess(context, {
-      data: { loggedOut: true },
+      data: { loggedOut: true, localRemoved: true, remoteRevoked },
     });
     return 0;
-  } catch (error) {
-    return writeTelegramError(context, error, "auth");
   } finally {
     await telegram?.disconnect().catch(() => undefined);
   }
@@ -131,7 +154,7 @@ async function readOrPromptCredentials(
   if (existing) return existing;
 
   const apiIdText = await context.io.question("API ID: ");
-  const apiHash = (await context.io.question("API hash: ")).trim();
+  const apiHash = (await readSecret(context, "API hash: ")).trim();
   const apiId = Number(apiIdText);
 
   if (!Number.isSafeInteger(apiId) || apiId <= 0 || !apiHash) {
@@ -148,28 +171,48 @@ async function loginWithPhone(telegram: FireTgClient, context: CliContext) {
     mode: "phone",
     phoneNumber: normalizePhoneNumber(await context.io.question("Phone: ")),
     phoneCode: (isCodeViaApp) =>
-      context.io.question(
+      readSecret(
+        context,
         isCodeViaApp ? "Code from Telegram app: " : "Code from SMS: ",
       ),
-    password: () => context.io.question("2FA password: "),
+    password: () => readSecret(context, "2FA password: "),
   });
 }
 
 async function loginWithQr(telegram: FireTgClient, context: CliContext) {
   let previousQrLineCount = 0;
+  const clearQr = () => {
+    if (previousQrLineCount === 0) return;
+    context.io.stderr(`\x1b[${previousQrLineCount}A\x1b[0J`);
+    previousQrLineCount = 0;
+  };
 
-  return telegram.login({
-    mode: "qr",
-    qrCode: ({ url, expires }) => {
-      const qrPrompt = `Scan this QR code in Telegram. Expires at ${expires.toISOString()}.\n${renderQr(url)}\n${url}\n`;
-      const clearPreviousQr =
-        previousQrLineCount > 0 ? `\x1b[${previousQrLineCount}A\x1b[0J` : "";
+  try {
+    return await telegram.login({
+      mode: "qr",
+      qrCode: ({ url, expires }) => {
+        const qrPrompt = `Scan this QR code in Telegram. Expires at ${expires.toISOString()}.\n${renderQr(url)}\n`;
+        const clearPreviousQr =
+          previousQrLineCount > 0 ? `\x1b[${previousQrLineCount}A\x1b[0J` : "";
 
-      context.io.stderr(`${clearPreviousQr}${qrPrompt}`);
-      previousQrLineCount = countTerminalLines(qrPrompt);
-    },
-    password: () => context.io.question("2FA password: "),
-  });
+        context.io.stderr(`${clearPreviousQr}${qrPrompt}`);
+        previousQrLineCount = countTerminalLines(qrPrompt);
+      },
+      password: () => {
+        clearQr();
+        return readSecret(context, "2FA password: ");
+      },
+    });
+  } finally {
+    clearQr();
+  }
+}
+
+function readSecret(context: CliContext, prompt: string): Promise<string> {
+  if (!context.io.secret) {
+    throw new InvalidCredentialsError("Secure secret input is unavailable");
+  }
+  return context.io.secret(prompt);
 }
 
 function countTerminalLines(text: string): number {

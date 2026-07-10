@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  mkdir,
   mkdtemp,
   readFile,
   stat,
@@ -28,6 +29,7 @@ function createHarness() {
       stdout: (text: string) => stdout.push(text),
       stderr: (text: string) => stderr.push(text),
       question: async () => "",
+      secret: async () => "",
     },
   };
 }
@@ -1419,7 +1421,8 @@ describe("firetg cli", () => {
     const stdout: string[] = [];
     const stderr: string[] = [];
     const prompts: string[] = [];
-    const answers = ["123", "hash"];
+    const answers = ["123"];
+    const secrets = ["hash"];
     const configHome = await mkdtemp(join(tmpdir(), "firetg-test-"));
     const store = new LocalStore(configHome);
 
@@ -1431,6 +1434,10 @@ describe("firetg cli", () => {
         question: async (prompt) => {
           prompts.push(prompt);
           return answers.shift() ?? "";
+        },
+        secret: async (prompt) => {
+          prompts.push(prompt);
+          return secrets.shift() ?? "";
         },
       },
       createTelegram: async () => fakeTelegram({
@@ -1449,7 +1456,8 @@ describe("firetg cli", () => {
 
     expect(exitCode).toBe(0);
     expect(prompts).toEqual(["API ID: ", "API hash: "]);
-    expect(stderr.join("")).toContain("tg://login?token=dG9rZW4");
+    expect(stderr.join("")).not.toContain("tg://login?token=dG9rZW4");
+    expect(stderr.at(-1)).toMatch(/^\x1b\[\d+A\x1b\[0J$/);
     expect(JSON.parse(stdout.join(""))).toEqual({ loggedIn: true });
     expect(JSON.parse(await readFile(store.paths.config, "utf8"))).toEqual({
       apiId: 123,
@@ -1461,7 +1469,8 @@ describe("firetg cli", () => {
   test("auth login replaces the previous QR code when Telegram renews it", async () => {
     const stdout: string[] = [];
     const stderr: string[] = [];
-    const answers = ["123", "hash"];
+    const answers = ["123"];
+    const secrets = ["hash"];
     const configHome = await mkdtemp(join(tmpdir(), "firetg-test-"));
     const store = new LocalStore(configHome);
 
@@ -1471,6 +1480,7 @@ describe("firetg cli", () => {
         stdout: (text) => stdout.push(text),
         stderr: (text) => stderr.push(text),
         question: async () => answers.shift() ?? "",
+        secret: async () => secrets.shift() ?? "",
       },
       createTelegram: async () => fakeTelegram({
         login: async (params) => {
@@ -1491,17 +1501,19 @@ describe("firetg cli", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(stderr).toHaveLength(2);
-    expect(stderr[0]).toContain("tg://login?token=ZXhwaXJlZA");
+    expect(stderr).toHaveLength(3);
+    expect(stderr[0]).not.toContain("tg://login?token=ZXhwaXJlZA");
     expect(stderr[1]).toMatch(/^\x1b\[\d+A\x1b\[0J/);
-    expect(stderr[1]).toContain("tg://login?token=cmVuZXdlZA");
+    expect(stderr[1]).not.toContain("tg://login?token=cmVuZXdlZA");
+    expect(stderr[2]).toMatch(/^\x1b\[\d+A\x1b\[0J$/);
   });
 
   test("auth login --phone normalizes phone and prompts after code delivery", async () => {
     const stdout: string[] = [];
     const stderr: string[] = [];
     const prompts: string[] = [];
-    const answers = ["123", "hash", "79886504271", "12345", "hunter2"];
+    const answers = ["123", "79886504271"];
+    const secrets = ["hash", "12345", "hunter2"];
     const configHome = await mkdtemp(join(tmpdir(), "firetg-test-"));
     const store = new LocalStore(configHome);
     let loginValues: unknown;
@@ -1514,6 +1526,10 @@ describe("firetg cli", () => {
         question: async (prompt) => {
           prompts.push(prompt);
           return answers.shift() ?? "";
+        },
+        secret: async (prompt) => {
+          prompts.push(prompt);
+          return secrets.shift() ?? "";
         },
       },
       createTelegram: async () => fakeTelegram({
@@ -1556,7 +1572,11 @@ describe("firetg cli", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({ loggedOut: true });
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      loggedOut: true,
+      localRemoved: true,
+      remoteRevoked: true,
+    });
     await expect(readFile(storagePath, "utf8")).rejects.toThrow();
     expect(harness.stderr.join("")).toBe("");
   });
@@ -1622,6 +1642,58 @@ describe("firetg cli", () => {
     expect(logoutCalls).toBe(1);
     await expect(readFile(storagePath, "utf8")).rejects.toThrow();
     expect(harness.stderr.join("")).toBe("");
+  });
+
+  test("auth logout removes local state when remote revocation fails", async () => {
+    const harness = createHarness();
+    const { store, storagePath } = await createStoredAuthStore();
+
+    const exitCode = await runCli(["auth", "logout"], {
+      store,
+      io: harness.io,
+      createTelegram: async () => fakeTelegram({
+        logout: async () => {
+          throw new Error("offline");
+        },
+      }),
+    });
+
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: false,
+      error: {
+        code: "TELEGRAM_ERROR",
+        message:
+          "offline. Check the login details and retry only after correcting the cause",
+        localRemoved: true,
+        remoteRevoked: false,
+      },
+    });
+    await expect(readFile(storagePath, "utf8")).rejects.toThrow();
+  });
+
+  test("auth logout removes orphaned local state without credentials", async () => {
+    const harness = createHarness();
+    const configHome = await mkdtemp(join(tmpdir(), "firetg-test-"));
+    const store = new LocalStore(configHome);
+    await mkdir(store.paths.directory, { recursive: true });
+    await writeFile(store.paths.telegram, "sqlite", { mode: 0o600 });
+
+    const exitCode = await runCli(["auth", "logout"], {
+      store,
+      io: harness.io,
+    });
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(harness.stdout.join(""))).toMatchObject({
+      ok: false,
+      error: {
+        code: "CONFIG_ERROR",
+        localRemoved: true,
+        remoteRevoked: false,
+      },
+    });
+    await expect(readFile(store.paths.telegram, "utf8")).rejects.toThrow();
   });
 
   test("Telegram errors become agent-readable JSON", async () => {
