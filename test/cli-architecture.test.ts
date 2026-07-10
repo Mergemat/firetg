@@ -72,4 +72,16 @@ describe("cli architecture", () => {
       true,
     );
   });
+
+  test("command metadata is sufficient for generic input validation", () => {
+    for (const command of commandSpecs) {
+      const options = command.help.options ?? [];
+      const names = options.map((option) => option.name);
+      expect(new Set(names).size).toBe(names.length);
+
+      for (const option of options.filter((item) => item.name === "--limit")) {
+        expect(option.integer).toEqual({ min: 1, max: 100 });
+      }
+    }
+  });
 });

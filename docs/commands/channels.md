@@ -33,7 +33,7 @@ The result includes channel metadata and, when Telegram provides it, the descrip
 }
 ```
 
-Optional flags can include `restricted`, `scam`, and `fake`. See [JSON output](/reference/output.md#channel-details) for the full shape.
+Optional flags can include `restricted`, `scam`, and `fake`. See [Output](/reference/output.md#channel-details) for the full shape.
 
 ## `channels messages`
 
@@ -48,12 +48,14 @@ Reads channel history newest first.
 | `--username <username>` | One destination required | | Channel username |
 | `--id <channel-id>` | One destination required | | Known channel ID |
 | `--limit <n>` | No | `20` | Maximum messages to return |
+| `--full-text` | No | Off | Return complete text instead of 1,000-character previews |
 
 ```sh
 firetg channels messages --username telegram --limit 50
 ```
 
 The result is an array of [message summaries](/reference/output.md#message-summary).
+`--limit` must be between 1 and 100.
 
 ## `channels pinned`
 
@@ -62,6 +64,8 @@ firetg channels pinned (--username <username> | --id <channel-id>) [--limit <n>]
 ```
 
 Reads pinned channel messages newest first. The default limit is `20`.
+Pass `--full-text` only when complete bodies are required. `--limit` must be
+between 1 and 100.
 
 ```sh
 firetg channels pinned --username telegram --limit 20

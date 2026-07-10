@@ -1,8 +1,9 @@
 import { loadTelegramConfig } from "../../config";
-import { ConfigError, type ApiCredentials } from "../../localStore";
+import type { ApiCredentials } from "../../localStore";
 import { createMtcuteClient, type FireTgClient } from "../../telegram";
 import { renderQr } from "../qr";
-import { errorMessage, writeError, writeSuccess } from "../output";
+import { errorMessage, writeInputError, writeSuccess } from "../output";
+import { writeTelegramError } from "./shared";
 import type { CliContext } from "../types";
 import type { CommandSpec } from "./types";
 
@@ -82,25 +83,15 @@ async function runAuthLogin(
     await context.store.secureTelegramStorage();
 
     writeSuccess(context, {
-      data: {
-        configPath: context.store.paths.config,
-        storagePath: context.store.paths.telegram,
-      },
+      data: { loggedIn: true },
     });
     return 0;
   } catch (error) {
-    const isConfigError = error instanceof ConfigError;
-    const isInputError = error instanceof InvalidCredentialsError;
-    writeError(
-      context,
-      isConfigError
-        ? "CONFIG_ERROR"
-        : isInputError
-          ? "INPUT_ERROR"
-          : "TELEGRAM_ERROR",
-      errorMessage(error),
-    );
-    return isConfigError || isInputError ? 1 : 2;
+    if (error instanceof InvalidCredentialsError) {
+      writeInputError(context, authLoginCommand, errorMessage(error));
+      return 1;
+    }
+    return writeTelegramError(context, error, "auth");
   } finally {
     await telegram?.disconnect().catch(() => undefined);
   }
@@ -123,17 +114,11 @@ async function runAuthLogout(context: CliContext): Promise<number> {
     await context.store.removeTelegramStorage();
     await context.store.removeLegacyState();
     writeSuccess(context, {
-      data: { storagePath: context.store.paths.telegram },
+      data: { loggedOut: true },
     });
     return 0;
   } catch (error) {
-    const isConfigError = error instanceof ConfigError;
-    writeError(
-      context,
-      isConfigError ? "CONFIG_ERROR" : "TELEGRAM_ERROR",
-      errorMessage(error),
-    );
-    return isConfigError ? 1 : 2;
+    return writeTelegramError(context, error, "auth");
   } finally {
     await telegram?.disconnect().catch(() => undefined);
   }

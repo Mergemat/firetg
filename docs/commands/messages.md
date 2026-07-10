@@ -45,6 +45,9 @@ firetg messages send \
 
 Relative file paths are resolved from the current working directory. firetg checks that an attachment exists and is a regular file before connecting to Telegram.
 
+Success returns only the new message ID, date, and optional media summary. The
+submitted text/caption is not echoed back into agent context.
+
 ::: warning External side effect
 This command can notify another person. Confirm the recipient and content before an agent or script runs it.
 :::
@@ -64,6 +67,7 @@ Reads recent history newest first. `--chat` accepts a username, peer ID, or self
 | `--chat <peer>` | Yes | | Chat or peer |
 | `--limit <n>` | No | `20` | Maximum messages to return |
 | `--search <query>` | No | | Search within the chat history |
+| `--full-text` | No | Off | Return complete text instead of 1,000-character previews |
 
 ```sh
 firetg messages list --chat me --limit 20
@@ -71,6 +75,9 @@ firetg messages list --chat launch-team --search deploy --limit 10
 ```
 
 The legacy alias is `firetg messages:list`.
+
+`--limit` must be between 1 and 100. Preview results include
+`textTruncated: true` when shortened.
 
 ## `messages search`
 
@@ -81,6 +88,9 @@ firetg messages search --chat <peer> \
 ```
 
 This command has two mutually exclusive modes.
+
+All modes accept `--full-text`; without it, message text is limited to a
+1,000-character preview. `--limit` must be between 1 and 100.
 
 ### Search by hashtag
 
@@ -111,6 +121,7 @@ firetg messages pinned --chat <peer> [--limit <n>]
 ```
 
 Reads pinned messages from a chat or channel, newest first. The default limit is `20`.
+Pass `--full-text` only when complete pinned-message bodies are required.
 
 ```sh
 firetg messages pinned --chat telegram --limit 20

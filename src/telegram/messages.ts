@@ -73,7 +73,7 @@ export async function listTelegramMessages(
       })
     : await client.getHistory(chat, { limit: options.limit });
 
-  return serializeMessages(messages, await getMessageReadState(client, chat));
+  return serializeMessages(messages, await readStateOrUndefined(client, chat));
 }
 
 export async function listTelegramPinnedMessages(
@@ -87,7 +87,7 @@ export async function listTelegramPinnedMessages(
     limit: options.limit,
   });
 
-  return serializeMessages(messages, await getMessageReadState(client, chat));
+  return serializeMessages(messages, await readStateOrUndefined(client, chat));
 }
 
 export async function listTelegramReplies(
@@ -129,7 +129,14 @@ export async function listTelegramReplies(
     .filter((message) => senderIds.has(message.sender.id))
     .slice(0, options.limit);
 
-  return serializeMessages(messages, await getMessageReadState(client, chat));
+  return serializeMessages(messages, await readStateOrUndefined(client, chat));
+}
+
+async function readStateOrUndefined(
+  client: TelegramClient,
+  chat: Parameters<TelegramClient["getPeerDialogs"]>[0],
+): Promise<MessageReadState | undefined> {
+  return getMessageReadState(client, chat).catch(() => undefined);
 }
 
 async function getMessageReadState(

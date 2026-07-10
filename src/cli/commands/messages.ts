@@ -1,6 +1,10 @@
 import { readPositiveInt } from "../args";
-import { writeError, writeSuccess } from "../output";
-import { matchesScopedCommand, runWithTelegram } from "./shared";
+import { writeInputError, writeSuccess } from "../output";
+import {
+  matchesScopedCommand,
+  messagesForOutput,
+  runWithTelegram,
+} from "./shared";
 import type { CommandSpec } from "./types";
 
 export const messagesListCommand: CommandSpec = {
@@ -22,11 +26,17 @@ export const messagesListCommand: CommandSpec = {
         value: "<n>",
         summary: "Maximum messages to return",
         defaultValue: "20",
+        integer: { min: 1, max: 100 },
       },
       {
         name: "--search",
         value: "<query>",
         summary: "Search query within the chat history",
+      },
+      {
+        name: "--full-text",
+        summary:
+          "Return complete message text instead of the 1000-character preview",
       },
     ],
     examples: [
@@ -48,17 +58,24 @@ export const messagesListCommand: CommandSpec = {
     const chat = parsed.flags.get("chat");
 
     if (!chat) {
-      writeError(context, "INPUT_ERROR", "messages list requires --chat");
+      writeInputError(
+        context,
+        messagesListCommand,
+        "messages list requires --chat",
+      );
       return 1;
     }
 
     return runWithTelegram(context, async (telegram) => {
       writeSuccess(context, {
-        data: await telegram.listMessages({
-          chat,
-          limit: readPositiveInt(parsed.flags, "limit", 20),
-          search: parsed.flags.get("search"),
-        }),
+        data: messagesForOutput(
+          await telegram.listMessages({
+            chat,
+            limit: readPositiveInt(parsed.flags, "limit", 20),
+            search: parsed.flags.get("search"),
+          }),
+          parsed.flags.has("full-text"),
+        ),
       });
       return 0;
     });
@@ -88,6 +105,7 @@ export const messagesSearchCommand: CommandSpec = {
         name: "--reply-to",
         value: "<id>",
         summary: "Message id whose replies should be searched",
+        integer: { min: 1 },
       },
       {
         name: "--from",
@@ -99,6 +117,12 @@ export const messagesSearchCommand: CommandSpec = {
         value: "<n>",
         summary: "Maximum messages to return",
         defaultValue: "100 for hashtags, 50 for replies",
+        integer: { min: 1, max: 100 },
+      },
+      {
+        name: "--full-text",
+        summary:
+          "Return complete message text instead of the 1000-character preview",
       },
     ],
     examples: [
@@ -124,19 +148,46 @@ export const messagesSearchCommand: CommandSpec = {
     const replyTo = readRequiredPositiveInt(parsed.flags.get("reply-to"));
     const from = readCommaSeparated(parsed.flags.get("from"));
 
-    if (!chat || (hashtag && replyTo !== undefined) || (!hashtag && replyTo === undefined)) {
-      writeError(
+    if (!chat) {
+      writeInputError(
         context,
-        "INPUT_ERROR",
-        "messages search requires --chat plus either --hashtag or --reply-to with --from",
+        messagesSearchCommand,
+        "messages search requires --chat",
+      );
+      return 1;
+    }
+
+    if (hashtag && replyTo !== undefined) {
+      writeInputError(
+        context,
+        messagesSearchCommand,
+        "messages search accepts either --hashtag or --reply-to, not both",
+      );
+      return 1;
+    }
+
+    if (hashtag && from.length > 0) {
+      writeInputError(
+        context,
+        messagesSearchCommand,
+        "messages search accepts --from only with --reply-to",
+      );
+      return 1;
+    }
+
+    if (!hashtag && replyTo === undefined) {
+      writeInputError(
+        context,
+        messagesSearchCommand,
+        "messages search requires --hashtag or --reply-to with --from",
       );
       return 1;
     }
 
     if (replyTo !== undefined && from.length === 0) {
-      writeError(
+      writeInputError(
         context,
-        "INPUT_ERROR",
+        messagesSearchCommand,
         "messages search requires --from when using --reply-to",
       );
       return 1;
@@ -145,22 +196,28 @@ export const messagesSearchCommand: CommandSpec = {
     return runWithTelegram(context, async (telegram) => {
       if (replyTo !== undefined) {
         writeSuccess(context, {
-          data: await telegram.listReplies({
-            chat,
-            messageId: replyTo,
-            from,
-            limit: readPositiveInt(parsed.flags, "limit", 50),
-          }),
+          data: messagesForOutput(
+            await telegram.listReplies({
+              chat,
+              messageId: replyTo,
+              from,
+              limit: readPositiveInt(parsed.flags, "limit", 50),
+            }),
+            parsed.flags.has("full-text"),
+          ),
         });
         return 0;
       }
 
       writeSuccess(context, {
-        data: await telegram.listMessages({
-          chat,
-          search: hashtag,
-          limit: readPositiveInt(parsed.flags, "limit", 100),
-        }),
+        data: messagesForOutput(
+          await telegram.listMessages({
+            chat,
+            search: hashtag,
+            limit: readPositiveInt(parsed.flags, "limit", 100),
+          }),
+          parsed.flags.has("full-text"),
+        ),
       });
       return 0;
     });
@@ -186,6 +243,12 @@ export const messagesPinnedCommand: CommandSpec = {
         value: "<n>",
         summary: "Maximum pinned messages to return",
         defaultValue: "20",
+        integer: { min: 1, max: 100 },
+      },
+      {
+        name: "--full-text",
+        summary:
+          "Return complete message text instead of the 1000-character preview",
       },
     ],
     examples: [
@@ -203,16 +266,23 @@ export const messagesPinnedCommand: CommandSpec = {
     const chat = parsed.flags.get("chat");
 
     if (!chat) {
-      writeError(context, "INPUT_ERROR", "messages pinned requires --chat");
+      writeInputError(
+        context,
+        messagesPinnedCommand,
+        "messages pinned requires --chat",
+      );
       return 1;
     }
 
     return runWithTelegram(context, async (telegram) => {
       writeSuccess(context, {
-        data: await telegram.listPinnedMessages({
-          chat,
-          limit: readPositiveInt(parsed.flags, "limit", 20),
-        }),
+        data: messagesForOutput(
+          await telegram.listPinnedMessages({
+            chat,
+            limit: readPositiveInt(parsed.flags, "limit", 20),
+          }),
+          parsed.flags.has("full-text"),
+        ),
       });
       return 0;
     });

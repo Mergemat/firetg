@@ -34,9 +34,15 @@ try {
       question: (prompt) => rl.question(prompt),
     },
   });
-
-  await Promise.all(pendingWrites);
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  writeStream(process.stdout, `Unexpected failure: ${message}\n`);
+  if (Bun.env.FIRETG_DEBUG && error instanceof Error && error.stack) {
+    writeStream(process.stderr, `${error.stack}\n`);
+  }
+  exitCode = 2;
 } finally {
+  await Promise.all(pendingWrites);
   rl.close();
 }
 

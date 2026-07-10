@@ -1,8 +1,8 @@
 import type { CliContext } from "./types";
+import type { CommandSpec } from "./commands";
 
 export type ErrorCode =
   | "CONFIG_ERROR"
-  | "INPUT_ERROR"
   | "RATE_LIMITED"
   | "TELEGRAM_ERROR";
 
@@ -27,6 +27,15 @@ export function writeError(
       ...details,
     },
   })}\n`);
+}
+
+export function writeInputError(
+  context: CliContext,
+  command: CommandSpec,
+  message: string,
+) {
+  const sentence = /[.!?]$/.test(message) ? message : `${message}.`;
+  context.io.stdout(`${sentence}\nUsage: firetg ${command.usage}\n`);
 }
 
 export function errorMessage(error: unknown): string {

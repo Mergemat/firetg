@@ -4,26 +4,34 @@ export type ParsedArgs = {
   subcommand?: string;
   positionals: string[];
   flags: Map<string, string>;
+  flagCounts: Map<string, number>;
 };
 
 export function parseArgs(args: string[]): ParsedArgs {
+  const { flags, flagCounts } = parseFlags(args);
   return {
     raw: args,
     command: args[0],
     subcommand: args[1],
     positionals: parsePositionals(args),
-    flags: parseFlags(args),
+    flags,
+    flagCounts,
   };
 }
 
-function parseFlags(args: string[]): Map<string, string> {
+function parseFlags(args: string[]): {
+  flags: Map<string, string>;
+  flagCounts: Map<string, number>;
+} {
   const flags = new Map<string, string>();
+  const flagCounts = new Map<string, number>();
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (!arg?.startsWith("--")) continue;
 
     const key = arg.slice(2);
+    flagCounts.set(key, (flagCounts.get(key) ?? 0) + 1);
     const value = args[index + 1];
     if (!value || value.startsWith("--")) {
       flags.set(key, "");
@@ -34,7 +42,7 @@ function parseFlags(args: string[]): Map<string, string> {
     index += 1;
   }
 
-  return flags;
+  return { flags, flagCounts };
 }
 
 function parsePositionals(args: string[]): string[] {
@@ -66,6 +74,6 @@ export function readPositiveInt(
   if (value === undefined) return fallback;
 
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) return fallback;
+  if (!Number.isInteger(parsed) || parsed <= 0) return fallback;
   return parsed;
 }

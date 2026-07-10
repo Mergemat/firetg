@@ -20,6 +20,7 @@ Represents any Telegram destination: a user, group chat, or channel.
 - mtcute's SQLite storage persists peers and access hashes across commands.
 - Legacy Teleproto/GramJS sessions are converted once with mtcute's official converter.
 - Flood waits surface as `RATE_LIMITED` errors with `blockedUntil` and `remainingSeconds`.
+- Usage mistakes return concise contextual help instead of JSON; operational failures stay structured when recovery needs fields.
 
 ### Profile
 
@@ -27,6 +28,7 @@ Represents the currently authenticated Telegram account.
 
 - `profiles me` returns the current account profile.
 - `profiles get <username|user-id>` uses mtcute's full-user API and returns the Telegram bio when available.
+- Profile phone numbers require the explicit `--include-private` flag.
 - Use Profile for account identity reads, not Auth.
 
 ### Channel
@@ -48,6 +50,7 @@ Represents Telegram message actions for a peer.
 - `messages search` searches a chat by hashtag, or searches replies to one message from selected senders.
 - `messages pinned` reads pinned messages for a chat, newest first.
 - Message summaries include `readReceipt` when Telegram exposes dialog read state.
+- Message text defaults to a 1,000-character preview; `--full-text` opts into complete bodies.
 - Prefer Channel commands for broadcast channels.
 - Folders organize dialogs, not message streams.
 

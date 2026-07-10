@@ -133,7 +133,98 @@ describe("firetg cli", () => {
     expect(harness.stderr.join("")).toBe("");
   });
 
-  test("agent command reports missing API config file as JSON", async () => {
+  test("unknown subcommand includes compact scoped help", async () => {
+    const harness = createHarness();
+
+    const exitCode = await runCli(["dialogs", "listdd"], {
+      store: harness.store,
+      io: harness.io,
+    });
+
+    expect(exitCode).toBe(1);
+    expect(harness.stdout.join("")).toBe(
+      "Unknown command: dialogs listdd.\n\nAvailable dialogs commands:\n" +
+        "  firetg dialogs list [--folder <id>] [--limit <n>]\n",
+    );
+  });
+
+  test("unknown command group includes compact root help", async () => {
+    const harness = createHarness();
+
+    const exitCode = await runCli(["listdd"], {
+      store: harness.store,
+      io: harness.io,
+    });
+
+    expect(exitCode).toBe(1);
+    expect(harness.stdout.join("")).toContain("Unknown command: listdd.");
+    expect(harness.stdout.join("")).toContain("Available command groups:");
+    expect(harness.stdout.join("")).toContain("  dialogs - Chats and dialog lists");
+  });
+
+  test("unknown flags fail with usage before Telegram is called", async () => {
+    const harness = createHarness();
+    let created = false;
+
+    const exitCode = await runCli(["dialogs", "list", "--limt", "2"], {
+      store: harness.store,
+      io: harness.io,
+      createTelegram: async () => {
+        created = true;
+        return fakeTelegram();
+      },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(created).toBe(false);
+    expect(harness.stdout.join("")).toBe(
+      "Unknown flag: --limt.\nUsage: firetg dialogs list [--folder <id>] [--limit <n>]\n",
+    );
+  });
+
+  test("invalid, duplicate, and unbounded limits fail with usage", async () => {
+    for (const args of [
+      ["dialogs", "list", "--limit", "nope"],
+      ["dialogs", "list", "--limit", "0"],
+      ["dialogs", "list", "--limit", "101"],
+      ["dialogs", "list", "--limit", "2", "--limit", "3"],
+    ]) {
+      const harness = createHarness();
+      const exitCode = await runCli(args, {
+        store: harness.store,
+        io: harness.io,
+      });
+
+      expect(exitCode).toBe(1);
+      expect(harness.stdout.join("")).toContain("Usage: firetg dialogs list");
+    }
+  });
+
+  test("extra positional arguments fail instead of being ignored", async () => {
+    const harness = createHarness();
+
+    const exitCode = await runCli(["folders", "list", "ignored"], {
+      store: harness.store,
+      io: harness.io,
+    });
+
+    expect(exitCode).toBe(1);
+    expect(harness.stdout.join("")).toBe(
+      "Unexpected argument: ignored.\nUsage: firetg folders list\n",
+    );
+
+    const aliasHarness = createHarness();
+    const aliasExitCode = await runCli(["send", "ignored"], {
+      store: aliasHarness.store,
+      io: aliasHarness.io,
+    });
+    expect(aliasExitCode).toBe(1);
+    expect(aliasHarness.stdout.join("")).toContain(
+      "Unexpected argument: ignored.\nUsage: firetg messages send",
+    );
+  });
+
+  test("agent command reports missing API config with recovery", async () => {
     const harness = createHarness();
     const configHome = await mkdtemp(join(tmpdir(), "firetg-test-"));
     const store = new LocalStore(configHome);
@@ -148,7 +239,7 @@ describe("firetg cli", () => {
       ok: false,
       error: {
         code: "CONFIG_ERROR",
-        message: `Missing config file at ${store.paths.config}`,
+        message: `Missing config file at ${store.paths.config}; run firetg auth login interactively`,
       },
     });
     expect(harness.stderr.join("")).toBe("");
@@ -199,7 +290,6 @@ describe("firetg cli", () => {
       username: "agent",
       firstName: "Fire",
       lastName: "TG",
-      phone: "+10000000000",
     });
     expect(harness.stderr.join("")).toBe("");
   });
@@ -328,7 +418,8 @@ describe("firetg cli", () => {
       ok: false,
       error: {
         code: "RATE_LIMITED",
-        message: "Telegram flood wait: retry after 2026-07-01T14:44:07.000Z",
+        message:
+          "Telegram rate-limited this action after too many similar requests. Retry at 2026-07-01T14:44:07.000Z (in 14h 44m 7s); avoid retrying it earlier or in parallel",
         blockedUntil: "2026-07-01T14:44:07.000Z",
         remainingSeconds: 53047,
       },
@@ -355,8 +446,70 @@ describe("firetg cli", () => {
     expect(exitCode).toBe(2);
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
       ok: false,
-      error: { code: "TELEGRAM_ERROR", message: "FLOOD_WAIT_53047" },
+      error: {
+        code: "TELEGRAM_ERROR",
+        message:
+          "FLOOD_WAIT_53047. Retry once only if the failure appears transient",
+      },
     });
+  });
+
+  test("chat slow mode explains its scope and retry deadline", async () => {
+    const harness = createHarness();
+    const { store } = await createStoredAuthStore();
+
+    const exitCode = await runCli(
+      ["messages", "send", "--username", "alice", "--text", "hello"],
+      {
+        store,
+        io: harness.io,
+        now: () => new Date("2026-07-01T00:00:00.000Z"),
+        createTelegram: async () =>
+          fakeTelegram({
+            sendMessage: async () => {
+              throw tl.RpcError.fromTl({
+                errorCode: 420,
+                errorMessage: "SLOWMODE_WAIT_60",
+              });
+            },
+          }),
+      },
+    );
+
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(harness.stdout.join("")).error).toEqual({
+      code: "RATE_LIMITED",
+      message:
+        "This chat has slow mode enabled. Retry at 2026-07-01T00:01:00.000Z (in 1m); other chats are unaffected",
+      blockedUntil: "2026-07-01T00:01:00.000Z",
+      remainingSeconds: 60,
+    });
+  });
+
+  test("auth flood waits use the same actionable classification", async () => {
+    const harness = createHarness();
+    await harness.store.writeCredentials({ apiId: 123, apiHash: "hash" });
+
+    const exitCode = await runCli(["auth", "login"], {
+      store: harness.store,
+      io: harness.io,
+      now: () => new Date("2026-07-01T00:00:00.000Z"),
+      createTelegram: async () =>
+        fakeTelegram({
+          login: async () => {
+            throw tl.RpcError.fromTl({
+              errorCode: 420,
+              errorMessage: "FLOOD_WAIT_30",
+            });
+          },
+        }),
+    });
+
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(harness.stdout.join("")).error.code).toBe("RATE_LIMITED");
+    expect(JSON.parse(harness.stdout.join("")).error.message).toContain(
+      "repeated login attempts",
+    );
   });
 
   test("profiles view validates lookup flags before loading config", async () => {
@@ -368,13 +521,9 @@ describe("firetg cli", () => {
     });
 
     expect(exitCode).toBe(1);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: false,
-      error: {
-        code: "INPUT_ERROR",
-        message: "profiles view requires --username or --id",
-      },
-    });
+    expect(harness.stdout.join("")).toBe(
+      "profiles view requires --username or --id.\nUsage: firetg profiles get <username|user-id>\n",
+    );
   });
 
   test("profiles view rejects ambiguous lookup flags before loading config", async () => {
@@ -389,13 +538,9 @@ describe("firetg cli", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: false,
-      error: {
-        code: "INPUT_ERROR",
-        message: "profiles view accepts either --username or --id, not both",
-      },
-    });
+    expect(harness.stdout.join("")).toBe(
+      "profiles view accepts either --username or --id, not both.\nUsage: firetg profiles get <username|user-id>\n",
+    );
   });
 
   test("channels view emits channel details by username as JSON", async () => {
@@ -563,7 +708,6 @@ describe("firetg cli", () => {
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
       id: 7,
       date: 1_800_000_000,
-      text: "hello",
     });
   });
 
@@ -595,7 +739,6 @@ describe("firetg cli", () => {
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
       id: 8,
       date: 1_800_000_001,
-      text: "hello",
     });
   });
 
@@ -721,7 +864,6 @@ describe("firetg cli", () => {
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
       id: 9,
       date: 1_800_000_002,
-      text: "caption",
     });
   });
 
@@ -835,13 +977,9 @@ describe("firetg cli", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: false,
-      error: {
-        code: "INPUT_ERROR",
-        message: "messages send accepts only one destination flag",
-      },
-    });
+    expect(harness.stdout.join("")).toContain(
+      "messages send accepts only one destination flag.\nUsage: firetg messages send",
+    );
   });
 
   test("messages send rejects invalid scheduled delivery before loading config", async () => {
@@ -865,11 +1003,9 @@ describe("firetg cli", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(JSON.parse(harness.stdout.join("")).error).toEqual({
-      code: "INPUT_ERROR",
-      message:
-        "messages send requires --schedule-at to be ISO-8601 date-time or unix seconds",
-    });
+    expect(harness.stdout.join("")).toContain(
+      "messages send requires --schedule-at to be ISO-8601 date-time or unix seconds.\nUsage: firetg messages send",
+    );
   });
 
   test("messages send rejects past scheduled delivery before loading config", async () => {
@@ -893,10 +1029,9 @@ describe("firetg cli", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(JSON.parse(harness.stdout.join("")).error).toEqual({
-      code: "INPUT_ERROR",
-      message: "messages send requires --schedule-at to be in the future",
-    });
+    expect(harness.stdout.join("")).toContain(
+      "messages send requires --schedule-at to be in the future.\nUsage: firetg messages send",
+    );
   });
 
   test("messages send validates required flags before loading config", async () => {
@@ -908,13 +1043,9 @@ describe("firetg cli", () => {
     });
 
     expect(exitCode).toBe(1);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: false,
-      error: {
-        code: "INPUT_ERROR",
-        message: "messages send requires --username or --id plus --text or --file",
-      },
-    });
+    expect(harness.stdout.join("")).toContain(
+      "messages send requires --username or --id plus --text or --file.\nUsage: firetg messages send",
+    );
   });
 
   test("messages send rejects ambiguous attachment flags before loading config", async () => {
@@ -938,13 +1069,9 @@ describe("firetg cli", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: false,
-      error: {
-        code: "INPUT_ERROR",
-        message: "messages send accepts either --file or --attachment, not both",
-      },
-    });
+    expect(harness.stdout.join("")).toContain(
+      "messages send accepts either --file or --attachment, not both.\nUsage: firetg messages send",
+    );
   });
 
   test("messages send rejects missing attachment files before loading config", async () => {
@@ -960,13 +1087,9 @@ describe("firetg cli", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: false,
-      error: {
-        code: "INPUT_ERROR",
-        message: `attachment file not found: ${missing}`,
-      },
-    });
+    expect(harness.stdout.join("")).toContain(
+      `attachment file not found: ${missing}.\nUsage: firetg messages send`,
+    );
   });
 
   test("messages send rejects removed --to flag before loading config", async () => {
@@ -981,13 +1104,9 @@ describe("firetg cli", () => {
     );
 
     expect(exitCode).toBe(1);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: false,
-      error: {
-        code: "INPUT_ERROR",
-        message: "messages send does not support --to; use --username or --id",
-      },
-    });
+    expect(harness.stdout.join("")).toContain(
+      "messages send does not support --to; use --username or --id.\nUsage: firetg messages send",
+    );
   });
 
   test("folders list emits Telegram folders as JSON", async () => {
@@ -1235,14 +1354,9 @@ describe("firetg cli", () => {
     });
 
     expect(exitCode).toBe(1);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: false,
-      error: {
-        code: "INPUT_ERROR",
-        message:
-          "messages search requires --chat plus either --hashtag or --reply-to with --from",
-      },
-    });
+    expect(harness.stdout.join("")).toContain(
+      "messages search requires --hashtag or --reply-to with --from.\nUsage: firetg messages search",
+    );
   });
 
   test("messages list validates --chat before loading config", async () => {
@@ -1254,13 +1368,9 @@ describe("firetg cli", () => {
     });
 
     expect(exitCode).toBe(1);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      ok: false,
-      error: {
-        code: "INPUT_ERROR",
-        message: "messages list requires --chat",
-      },
-    });
+    expect(harness.stdout.join("")).toContain(
+      "messages list requires --chat.\nUsage: firetg messages list",
+    );
   });
 
   test("messages pinned emits pinned chat messages as JSON", async () => {
@@ -1340,10 +1450,7 @@ describe("firetg cli", () => {
     expect(exitCode).toBe(0);
     expect(prompts).toEqual(["API ID: ", "API hash: "]);
     expect(stderr.join("")).toContain("tg://login?token=dG9rZW4");
-    expect(JSON.parse(stdout.join(""))).toEqual({
-      configPath: store.paths.config,
-      storagePath: store.paths.telegram,
-    });
+    expect(JSON.parse(stdout.join(""))).toEqual({ loggedIn: true });
     expect(JSON.parse(await readFile(store.paths.config, "utf8"))).toEqual({
       apiId: 123,
       apiHash: "hash",
@@ -1434,10 +1541,7 @@ describe("firetg cli", () => {
       phoneCode: "12345",
       password: "hunter2",
     });
-    expect(JSON.parse(stdout.join(""))).toEqual({
-      configPath: store.paths.config,
-      storagePath: store.paths.telegram,
-    });
+    expect(JSON.parse(stdout.join(""))).toEqual({ loggedIn: true });
     expect(stderr.join("")).toBe("");
   });
 
@@ -1452,11 +1556,46 @@ describe("firetg cli", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      storagePath,
-    });
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({ loggedOut: true });
     await expect(readFile(storagePath, "utf8")).rejects.toThrow();
     expect(harness.stderr.join("")).toBe("");
+  });
+
+  test("message reads use bounded text previews unless full text is requested", async () => {
+    const { store } = await createStoredAuthStore();
+    const longText = "x".repeat(1500);
+    const message = {
+      id: 1,
+      date: 1_800_000_000,
+      text: longText,
+      senderId: "42",
+      chatId: "100",
+      outgoing: false,
+    };
+
+    const previewHarness = createHarness();
+    await runCli(["messages", "list", "--chat", "me"], {
+      store,
+      io: previewHarness.io,
+      createTelegram: async () => fakeTelegram({
+        listMessages: async () => [message],
+      }),
+    });
+    const [preview] = JSON.parse(previewHarness.stdout.join(""));
+    expect(preview.text).toHaveLength(1000);
+    expect(preview.textTruncated).toBe(true);
+
+    const fullHarness = createHarness();
+    await runCli(["messages", "list", "--chat", "me", "--full-text"], {
+      store,
+      io: fullHarness.io,
+      createTelegram: async () => fakeTelegram({
+        listMessages: async () => [message],
+      }),
+    });
+    const [full] = JSON.parse(fullHarness.stdout.join(""));
+    expect(full.text).toBe(longText);
+    expect(full.textTruncated).toBeUndefined();
   });
 
   test("auth logout revokes the stored Telegram session", async () => {
@@ -1504,7 +1643,8 @@ describe("firetg cli", () => {
       ok: false,
       error: {
         code: "TELEGRAM_ERROR",
-        message: "AUTH_KEY_UNREGISTERED",
+        message:
+          "Telegram session is no longer valid. Run firetg auth login interactively",
       },
     });
   });

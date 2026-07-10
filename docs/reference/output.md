@@ -2,9 +2,9 @@
 description: Parse firetg success values, error envelopes, and every JSON result type.
 ---
 
-# JSON output
+# Output
 
-firetg writes one JSON value to stdout for every command. It does not wrap successful results in an `ok` or `data` envelope.
+firetg writes successful results as one JSON value on stdout. It does not wrap successful results in an `ok` or `data` envelope.
 
 ## Success
 
@@ -22,21 +22,33 @@ A list command writes an array directly:
 
 Output is compact, one-line JSON. Examples in these docs are formatted across multiple lines for readability.
 
-## Failure
+## Operational failure
 
-Failures use a stable envelope:
+Configuration, Telegram, and rate-limit failures use a stable envelope:
 
 ```json
 {
   "ok": false,
   "error": {
-    "code": "INPUT_ERROR",
-    "message": "messages list requires --chat"
+    "code": "CONFIG_ERROR",
+    "message": "Missing Telegram login at /Users/you/.config/firetg/telegram.sqlite; run firetg auth login"
   }
 }
 ```
 
 Read [Errors and exit codes](/reference/errors.md) for retry guidance.
+
+## Usage failure
+
+Unknown commands and invalid arguments use concise text followed by the
+smallest relevant help. This is intentionally not wrapped in JSON: the exit
+code already identifies failure, and the usage line prevents a follow-up help
+call.
+
+```text
+messages list requires --chat.
+Usage: firetg messages list --chat <peer> [--limit <n>] [--search <query>]
+```
 
 ## Account
 
@@ -51,6 +63,8 @@ type Account = {
   phone?: string;
 };
 ```
+
+CLI profile commands omit `phone` unless `--include-private` is supplied.
 
 ## Profile
 
@@ -76,7 +90,6 @@ Returned by `messages send`.
 type SentMessage = {
   id: number;
   date: number;
-  text: string;
   media?: MessageMediaSummary;
 };
 ```
@@ -92,6 +105,7 @@ type MessageSummary = {
   id: number;
   date: number;
   text: string;
+  textTruncated?: boolean;
   media?: MessageMediaSummary;
   senderId: string;
   chatId: string;
@@ -103,6 +117,10 @@ type MessageSummary = {
   };
 };
 ```
+
+Message-reading commands return a maximum of 100 items. `text` is a
+1,000-character preview by default; `textTruncated` is present only when text
+was shortened. Pass `--full-text` when the complete body is required.
 
 Messages are returned newest first. `readReceipt` is included only when Telegram exposes the dialog read state.
 

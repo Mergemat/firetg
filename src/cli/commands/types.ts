@@ -12,6 +12,11 @@ export type CommandOption = {
   summary: string;
   required?: boolean;
   defaultValue?: string;
+  integer?: {
+    min: number;
+    max?: number;
+  };
+  hidden?: boolean;
 };
 
 type CommandExample = {
@@ -32,6 +37,7 @@ export type CommandSpec = {
   usage: string;
   help: CommandHelp;
   hidden?: boolean;
+  maxPositionals?: number;
   matches: (parsed: ParsedArgs) => boolean;
   run: (input: CommandInput) => Promise<number>;
 };

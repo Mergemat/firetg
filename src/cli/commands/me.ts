@@ -1,4 +1,4 @@
-import { writeError, writeSuccess } from "../output";
+import { writeInputError, writeSuccess } from "../output";
 import { matchesScopedCommand, runWithTelegram } from "./shared";
 import type { CommandSpec } from "./types";
 
@@ -9,6 +9,12 @@ export const meCommand: CommandSpec = {
     summary: "Show current Telegram account",
     description:
       "Returns the Telegram profile for the stored session as JSON.",
+    options: [
+      {
+        name: "--include-private",
+        summary: "Include the account phone number",
+      },
+    ],
     examples: [
       {
         command: "firetg profiles me",
@@ -19,9 +25,12 @@ export const meCommand: CommandSpec = {
   },
   matches: (parsed) =>
     matchesScopedCommand(parsed, "profiles", "me") || parsed.command === "me",
-  async run({ context }) {
+  async run({ parsed, context }) {
     return runWithTelegram(context, async (telegram) => {
-      writeSuccess(context, { data: await telegram.getMe() });
+      const account = await telegram.getMe();
+      writeSuccess(context, {
+        data: parsed.flags.has("include-private") ? account : withoutPhone(account),
+      });
       return 0;
     });
   },
@@ -45,6 +54,10 @@ export const profileViewCommand: CommandSpec = {
         value: "<user-id>",
         summary: "Legacy known Telegram user id flag",
       },
+      {
+        name: "--include-private",
+        summary: "Include a phone number when Telegram exposes one",
+      },
     ],
     examples: [
       {
@@ -61,6 +74,7 @@ export const profileViewCommand: CommandSpec = {
       },
     ],
   },
+  maxPositionals: 1,
   matches: (parsed) =>
     matchesScopedCommand(parsed, "profiles", "get") ||
     matchesScopedCommand(parsed, "profiles", "view"),
@@ -71,14 +85,14 @@ export const profileViewCommand: CommandSpec = {
     const id = parsed.flags.get("id")?.trim();
 
     if (parsed.positionals.length > 1) {
-      writeError(context, "INPUT_ERROR", `${label} accepts one profile lookup`);
+      writeInputError(context, profileViewCommand, `${label} accepts one profile lookup`);
       return 1;
     }
 
     if (!positionalLookup && !username && !id) {
-      writeError(
+      writeInputError(
         context,
-        "INPUT_ERROR",
+        profileViewCommand,
         parsed.subcommand === "get"
           ? "profiles get requires <username|user-id>"
           : "profiles view requires --username or --id",
@@ -87,9 +101,9 @@ export const profileViewCommand: CommandSpec = {
     }
 
     if ([positionalLookup, username, id].filter(Boolean).length > 1) {
-      writeError(
+      writeInputError(
         context,
-        "INPUT_ERROR",
+        profileViewCommand,
         parsed.subcommand === "get"
           ? "profiles get accepts one profile lookup"
           : "profiles view accepts either --username or --id, not both",
@@ -100,8 +114,17 @@ export const profileViewCommand: CommandSpec = {
     const lookup = positionalLookup ?? username ?? id ?? "";
 
     return runWithTelegram(context, async (telegram) => {
-      writeSuccess(context, { data: await telegram.getProfile(lookup) });
+      const profile = await telegram.getProfile(lookup);
+      writeSuccess(context, {
+        data: parsed.flags.has("include-private") ? profile : withoutPhone(profile),
+      });
       return 0;
     });
   },
 };
+
+function withoutPhone<T extends { phone?: string }>(profile: T): Omit<T, "phone"> {
+  const copy = { ...profile };
+  delete copy.phone;
+  return copy;
+}

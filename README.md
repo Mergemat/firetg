@@ -87,7 +87,10 @@ firetg messages search --help
 
 ## Output
 
-Commands print JSON to stdout.
+Successful commands print JSON to stdout. Telegram, configuration, and
+rate-limit failures retain structured JSON when agents need to branch or
+schedule a retry. Command/argument mistakes print concise text plus relevant
+usage so an agent does not need a second `--help` call.
 Prompts and diagnostics print to stderr.
 
 Success output is the command result itself:
@@ -101,3 +104,16 @@ Error:
 ```json
 {"ok":false,"error":{"code":"CONFIG_ERROR","message":"Missing config file at /path/to/config.json"}}
 ```
+
+Usage error:
+
+```text
+Unknown command: dialogs listdd.
+
+Available dialogs commands:
+  firetg dialogs list [--folder <id>] [--limit <n>]
+```
+
+Message-reading commands return at most 100 items. Text is limited to a
+1,000-character preview by default and includes `"textTruncated":true` when
+shortened. Pass `--full-text` only when complete bodies are needed.
