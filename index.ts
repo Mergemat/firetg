@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { createInterface } from "node:readline/promises";
 import { runCli } from "./src/cli";
+import { LocalStore } from "./src/localStore";
 
 const pendingWrites: Promise<void>[] = [];
 
@@ -26,7 +27,7 @@ let exitCode = 1;
 
 try {
   exitCode = await runCli(process.argv.slice(2), {
-    env: process.env,
+    store: new LocalStore(Bun.env.XDG_CONFIG_HOME || undefined),
     io: {
       stdout: (text) => writeStream(process.stdout, text),
       stderr: (text) => writeStream(process.stderr, text),

@@ -1,6 +1,7 @@
 # firetg
 
-Telegram MTProto CLI for scripts and agents.
+Telegram MTProto CLI for scripts and agents, powered by
+[mtcute](https://mtcute.dev/).
 
 ## Install
 
@@ -34,16 +35,15 @@ firetg auth login --phone
 ```
 
 Credentials are stored in `~/.config/firetg/config.json`.
-The Telegram session is stored in `~/.config/firetg/session`.
+Telegram auth state and the peer cache are stored in
+`~/.config/firetg/telegram.sqlite`.
 
-## Peer cache
+Existing Teleproto/GramJS string sessions at `~/.config/firetg/session` are
+converted to mtcute storage on the first authenticated command. The legacy
+session and `peers.json` files are removed after a successful conversion.
 
-Resolved usernames and ids are cached in `~/.config/firetg/peers.json`.
-The first lookup of a peer costs one Telegram resolve call; every later
-command reuses the cached access hash instantly. When Telegram flood-limits
-username resolves, firetg falls back to scanning your dialogs and records
-the flood deadline so it never burns retries. Delete the file to reset the
-cache.
+Set `XDG_CONFIG_HOME` to place the `firetg` directory elsewhere. If it is not
+set, firetg uses the current user's standard `~/.config` directory.
 
 ## Commands
 
@@ -90,10 +90,10 @@ firetg messages search --help
 Commands print JSON to stdout.
 Prompts and diagnostics print to stderr.
 
-Success:
+Success output is the command result itself:
 
 ```json
-{"ok":true,"data":{}}
+{}
 ```
 
 Error:

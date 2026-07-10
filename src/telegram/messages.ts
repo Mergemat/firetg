@@ -1,4 +1,13 @@
-import { Api, type TelegramClient } from "teleproto";
+import {
+  InputMedia,
+  Long,
+  Message,
+  PeersIndex,
+  SearchFilters,
+  type MessageMedia,
+  type TelegramClient,
+} from "@mtcute/bun";
+import { extname } from "node:path";
 import type {
   MessageMediaSummary,
   MessageReadReceipt,
@@ -6,7 +15,7 @@ import type {
   SendMessageInput,
   SentMessage,
 } from "./types";
-import { withPeer, type PeerResolver, type ResolvedPeer } from "./peers";
+import { normalizePeerInput } from "./peers";
 
 type MessageReadState = {
   readInboxMaxId: number;
@@ -15,76 +24,74 @@ type MessageReadState = {
 
 export async function sendTelegramMessage(
   client: TelegramClient,
-  resolver: PeerResolver,
   to: string,
   message: string | SendMessageInput,
 ): Promise<SentMessage> {
-  return withPeer(resolver, to, async (entity) => {
-    const input = normalizeSendMessageInput(message);
-    const sentMessage = input.attachment
-      ? await client.sendFile(entity, {
-          file: input.attachment,
-          caption: input.text,
-          forceDocument: input.forceDocument ?? false,
-          parseMode: undefined,
-          ...(input.scheduledAt === undefined
-            ? {}
-            : { scheduleDate: input.scheduledAt }),
-        })
-      : await client.sendMessage(entity, {
-          message: input.text,
-          parseMode: undefined,
-          ...(input.scheduledAt === undefined
-            ? {}
-            : { schedule: input.scheduledAt }),
-        });
+  const peer = normalizePeerInput(to, "user");
+  const input = typeof message === "string" ? { text: message } : message;
+  const schedule = input.scheduledAt
+    ? new Date(input.scheduledAt * 1000)
+    : undefined;
+  const sent = input.attachment
+    ? await client.sendMedia(
+        peer,
+        input.forceDocument
+          ? InputMedia.document(input.attachment)
+          : mediaForPath(input.attachment),
+        { caption: input.text, schedule },
+      )
+    : await client.sendText(peer, input.text ?? "", { schedule });
 
-    return serializeSentMessage(sentMessage);
-  });
+  return serializeSentMessage(sent);
+}
+
+function mediaForPath(path: string) {
+  const extension = extname(path).toLowerCase();
+  if ([".jpg", ".jpeg", ".png", ".webp"].includes(extension)) {
+    return InputMedia.photo(path);
+  }
+  if ([".mp4", ".mov", ".m4v", ".webm"].includes(extension)) {
+    return InputMedia.video(path);
+  }
+  if (extension === ".gif") return InputMedia.animation(path);
+  if ([".mp3", ".m4a", ".aac", ".flac", ".ogg", ".wav"].includes(extension)) {
+    return InputMedia.audio(path);
+  }
+  return InputMedia.document(path);
 }
 
 export async function listTelegramMessages(
   client: TelegramClient,
-  resolver: PeerResolver,
-  options: {
-    chat: string;
-    limit: number;
-    search?: string;
-  },
+  options: { chat: string; limit: number; search?: string },
 ): Promise<MessageSummary[]> {
-  return withPeer(resolver, options.chat, async (chat) => {
-    const messages = await client.getMessages(chat, {
-      limit: options.limit,
-      search: options.search,
-    });
-    const readState = await getMessageReadState(client, chat);
+  const chat = normalizePeerInput(options.chat);
+  const messages = options.search
+    ? await client.searchMessages({
+        chatId: chat,
+        query: options.search,
+        limit: options.limit,
+      })
+    : await client.getHistory(chat, { limit: options.limit });
 
-    return serializeMessages(messages, readState);
-  });
+  return serializeMessages(messages, await getMessageReadState(client, chat));
 }
 
 export async function listTelegramPinnedMessages(
   client: TelegramClient,
-  resolver: PeerResolver,
-  options: {
-    chat: string;
-    limit: number;
-  },
+  options: { chat: string; limit: number },
 ): Promise<MessageSummary[]> {
-  return withPeer(resolver, options.chat, async (chat) => {
-    const messages = await client.getMessages(chat, {
-      limit: options.limit,
-      filter: new Api.InputMessagesFilterPinned(),
-    });
-    const readState = await getMessageReadState(client, chat);
-
-    return serializeMessages(messages, readState);
+  const chat = normalizePeerInput(options.chat);
+  const messages = await client.searchMessages({
+    chatId: chat,
+    filter: SearchFilters.Pinned,
+    limit: options.limit,
   });
+
+  return serializeMessages(messages, await getMessageReadState(client, chat));
 }
 
 export async function listTelegramReplies(
   client: TelegramClient,
-  resolver: PeerResolver,
   options: {
     chat: string;
     messageId: number;
@@ -92,275 +99,177 @@ export async function listTelegramReplies(
     limit: number;
   },
 ): Promise<MessageSummary[]> {
-  return withPeer(resolver, options.chat, async (chat) => {
-    const senders = await Promise.all(
-      options.from.map((sender) => resolver.resolve(sender)),
-    );
-    const repliesBySender = await Promise.all(
-      senders.map((sender) =>
-        listRepliesFromSender(client, {
-          chat,
-          messageId: options.messageId,
-          sender,
-          limit: options.limit,
-        }),
-      ),
-    );
-    const readState = await getMessageReadState(client, chat);
-
-    return serializeMessages(uniqueMessages(repliesBySender.flat()), readState);
-  });
-}
-
-async function listRepliesFromSender(
-  client: TelegramClient,
-  options: {
-    chat: ResolvedPeer;
-    messageId: number;
-    sender: ResolvedPeer;
-    limit: number;
-  },
-): Promise<Api.Message[]> {
-  try {
-    return await client.getMessages(options.chat, {
-      limit: options.limit,
-      replyTo: options.messageId,
-      fromUser: options.sender,
-    });
-  } catch (error) {
-    if (!isReplyThreadUnavailable(error)) throw error;
-  }
-
-  const senderMessages = await client.getMessages(options.chat, {
-    limit: options.limit,
-    fromUser: options.sender,
-  });
-
-  return senderMessages.filter(
-    (message) => messageReplyToMessageId(message) === options.messageId,
+  const chat = normalizePeerInput(options.chat);
+  const peer = await client.resolvePeer(chat);
+  const senders = await client.getPeers(
+    options.from.map((sender) => normalizePeerInput(sender, "user")),
   );
+  const senderIds = new Set(
+    senders.flatMap((sender) => (sender ? [sender.id] : [])),
+  );
+  const response = await client.call({
+    _: "messages.getReplies",
+    peer,
+    msgId: options.messageId,
+    offsetId: 0,
+    offsetDate: 0,
+    addOffset: 0,
+    limit: Math.max(options.limit, 1),
+    maxId: 0,
+    minId: 0,
+    hash: Long.ZERO,
+  });
+
+  if (response._ === "messages.messagesNotModified") return [];
+
+  const peers = PeersIndex.from(response);
+  const messages = response.messages
+    .filter((raw) => raw._ !== "messageEmpty")
+    .map((raw) => new Message(raw, peers))
+    .filter((message) => senderIds.has(message.sender.id))
+    .slice(0, options.limit);
+
+  return serializeMessages(messages, await getMessageReadState(client, chat));
 }
 
 async function getMessageReadState(
   client: TelegramClient,
-  chat: ResolvedPeer,
+  chat: Parameters<TelegramClient["getPeerDialogs"]>[0],
 ): Promise<MessageReadState | undefined> {
-  const peer = await client.getInputEntity(chat);
-  const response = await client.invoke(
-    new Api.messages.GetPeerDialogs({
-      peers: [new Api.InputDialogPeer({ peer })],
-    }),
-  );
-  const dialog = response.dialogs.find(
-    (candidate): candidate is Api.Dialog => candidate instanceof Api.Dialog,
-  );
+  const dialog = (await client.getPeerDialogs(chat))[0];
+  return dialog
+    ? {
+        readInboxMaxId: dialog.lastReadIngoing,
+        readOutboxMaxId: dialog.lastReadOutgoing,
+      }
+    : undefined;
+}
 
-  if (!dialog) return undefined;
-
+function serializeSentMessage(message: Message): SentMessage {
   return {
-    readInboxMaxId: dialog.readInboxMaxId,
-    readOutboxMaxId: dialog.readOutboxMaxId,
+    id: message.id,
+    date: toUnixSeconds(message.date),
+    text: message.text,
+    ...(message.media ? { media: serializeMessageMedia(message.media) } : {}),
   };
 }
 
-function serializeSentMessage(message: Api.Message): SentMessage {
-  const media = serializeMessageMedia(message);
-  const summary: SentMessage = {
-    id: Number(message.id),
-    date: message.date,
-    text: message.message,
-  };
-
-  if (media) summary.media = media;
-  return summary;
-}
-
-function normalizeSendMessageInput(
-  message: string | SendMessageInput,
-): SendMessageInput {
-  return typeof message === "string" ? { text: message } : message;
-}
-
-function serializeMessage(
-  message: Api.Message,
+export function serializeMessage(
+  message: Message,
   readState?: MessageReadState,
 ): MessageSummary {
-  const media = serializeMessageMedia(message);
-  const readReceipt = serializeMessageReadReceipt(message, readState);
-  const senderId = peerIdToString(message.fromId);
-  const chatId = peerIdToString(message.peerId);
-  const summary: MessageSummary = {
-    id: Number(message.id),
-    date: message.date,
-    text: message.message,
+  const replyToMessageId = message.replyToMessage?.id ?? undefined;
+  return {
+    id: message.id,
+    date: toUnixSeconds(message.date),
+    text: message.text,
+    senderId: unmarkPeerId(message.sender.id),
+    chatId: unmarkPeerId(message.chat.id),
+    outgoing: message.isOutgoing,
+    ...(message.media ? { media: serializeMessageMedia(message.media) } : {}),
+    ...(replyToMessageId === undefined ? {} : { replyToMessageId }),
+    ...(readState
+      ? { readReceipt: serializeMessageReadReceipt(message, readState) }
+      : {}),
   };
-  const replyToMessageId = messageReplyToMessageId(message);
-
-  if (media) summary.media = media;
-  if (readReceipt) summary.readReceipt = readReceipt;
-  if (senderId !== undefined) summary.senderId = senderId;
-  if (chatId !== undefined) summary.chatId = chatId;
-  if (message.out !== undefined) summary.outgoing = message.out;
-  if (replyToMessageId !== undefined) {
-    summary.replyToMessageId = replyToMessageId;
-  }
-
-  return summary;
 }
 
 function serializeMessages(
-  messages: Api.Message[],
+  messages: Iterable<Message>,
   readState?: MessageReadState,
 ): MessageSummary[] {
-  return sortMessagesNewestFirst(messages).map((message) =>
-    serializeMessage(message, readState),
-  );
-}
-
-function sortMessagesNewestFirst(messages: Api.Message[]): Api.Message[] {
-  return [...messages].sort(compareMessagesNewestFirst);
-}
-
-function uniqueMessages(messages: Api.Message[]): Api.Message[] {
-  const seen = new Set<number>();
-  const unique: Api.Message[] = [];
-
-  for (const message of messages) {
-    const id = Number(message.id);
-    if (seen.has(id)) continue;
-
-    seen.add(id);
-    unique.push(message);
-  }
-
-  return unique;
-}
-
-function isReplyThreadUnavailable(error: unknown): boolean {
-  return error instanceof Error && error.message.includes("PEER_ID_INVALID");
-}
-
-function compareMessagesNewestFirst(left: Api.Message, right: Api.Message): number {
-  const leftDate = left.date ?? 0;
-  const rightDate = right.date ?? 0;
-  if (leftDate !== rightDate) return rightDate - leftDate;
-
-  return Number(right.id ?? 0) - Number(left.id ?? 0);
-}
-
-function peerIdToString(peer?: Api.TypePeer): string | undefined {
-  if (peer instanceof Api.PeerUser) return peer.userId.toString();
-  if (peer instanceof Api.PeerChat) return peer.chatId.toString();
-  if (peer instanceof Api.PeerChannel) return peer.channelId.toString();
-  return undefined;
+  return [...messages]
+    .sort((left, right) =>
+      right.date.getTime() - left.date.getTime() || right.id - left.id,
+    )
+    .map((message) => serializeMessage(message, readState));
 }
 
 function serializeMessageReadReceipt(
-  message: Api.Message,
-  readState?: MessageReadState,
-): MessageReadReceipt | undefined {
-  if (!readState || message.out === undefined) return undefined;
-
-  const messageId = Number(message.id);
-  if (message.out) {
-    return {
-      read: messageId <= readState.readOutboxMaxId,
-      direction: "outbox",
-    };
-  }
-
-  return {
-    read: messageId <= readState.readInboxMaxId,
-    direction: "inbox",
-  };
+  message: Message,
+  readState: MessageReadState,
+): MessageReadReceipt {
+  return message.isOutgoing
+    ? {
+        read: message.id <= readState.readOutboxMaxId,
+        direction: "outbox",
+      }
+    : {
+        read: message.id <= readState.readInboxMaxId,
+        direction: "inbox",
+      };
 }
 
-function messageReplyToMessageId(message: Api.Message): number | undefined {
-  if (message.replyTo instanceof Api.MessageReplyHeader) {
-    return message.replyTo.replyToMsgId;
+function serializeMessageMedia(media: Exclude<MessageMedia, null>): MessageMediaSummary {
+  switch (media.type) {
+    case "photo":
+      return { type: "photo" };
+    case "video":
+      return documentSummary(
+        media.isAnimation ? "gif" : media.isRound ? "video_note" : "video",
+        media,
+      );
+    case "audio":
+    case "voice":
+    case "sticker":
+    case "document":
+      return documentSummary(media.type, media);
+    case "webpage":
+      return {
+        type: "webpage",
+        title: media.preview.title ?? undefined,
+        url: media.preview.url,
+      };
+    case "contact":
+      return {
+        type: "contact",
+        title:
+          [media.firstName, media.lastName].filter(Boolean).join(" ") ||
+          undefined,
+        phoneNumber: media.phoneNumber,
+      };
+    case "venue":
+      return { type: "venue", title: media.title };
+    case "live_location":
+      return { type: "live_geo" };
+    case "location":
+      return { type: "geo" };
+    case "game":
+      return { type: "game", title: media.title };
+    case "invoice":
+      return { type: "invoice", title: media.title };
+    case "poll":
+      return { type: "poll", title: media.question };
+    case "dice":
+      return { type: "dice", title: media.emoji };
+    default:
+      return { type: media.type };
   }
-
-  return undefined;
 }
 
-function serializeMessageMedia(message: Api.Message): MessageMediaSummary | undefined {
-  const media = message.media;
-
-  if (!media || media instanceof Api.MessageMediaEmpty) return undefined;
-  if (media instanceof Api.MessageMediaPhoto) return { type: "photo" };
-  if (media instanceof Api.MessageMediaDocument) {
-    return serializeDocumentMedia(message, media.document);
-  }
-  if (media instanceof Api.MessageMediaWebPage) {
-    return {
-      type: "webpage",
-      title: message.webPreview?.title,
-      url: message.webPreview?.url,
-    };
-  }
-  if (media instanceof Api.MessageMediaContact) {
-    return {
-      type: "contact",
-      title: [media.firstName, media.lastName].filter(Boolean).join(" ") || undefined,
-      phoneNumber: media.phoneNumber,
-    };
-  }
-  if (media instanceof Api.MessageMediaVenue) {
-    return { type: "venue", title: media.title };
-  }
-  if (media instanceof Api.MessageMediaGeoLive) return { type: "live_geo" };
-  if (media instanceof Api.MessageMediaGeo) return { type: "geo" };
-  if (media instanceof Api.MessageMediaGame) {
-    return { type: "game", title: message.game?.title };
-  }
-  if (media instanceof Api.MessageMediaInvoice) {
-    return { type: "invoice", title: media.title };
-  }
-  if (media instanceof Api.MessageMediaPoll) {
-    return { type: "poll", title: media.poll.question.text };
-  }
-  if (media instanceof Api.MessageMediaDice) {
-    return { type: "dice", title: media.emoticon };
-  }
-  if (media instanceof Api.MessageMediaUnsupported) return { type: "unsupported" };
-
-  return { type: media.className.replace(/^MessageMedia/, "").toLowerCase() || "unknown" };
-}
-
-function serializeDocumentMedia(
-  message: Api.Message,
-  document?: Api.TypeDocument,
+function documentSummary(
+  type: string,
+  media: {
+    fileName: string | null;
+    mimeType: string;
+    fileSize?: number;
+  },
 ): MessageMediaSummary {
-  const apiDocument = document instanceof Api.Document ? document : undefined;
-  const summary: MessageMediaSummary = {
-    type: documentMediaType(message, apiDocument),
-    fileName: documentFileName(apiDocument),
-    mimeType: apiDocument?.mimeType,
-    size: apiDocument?.size.toString(),
+  return {
+    type,
+    ...(media.fileName ? { fileName: media.fileName } : {}),
+    ...(media.mimeType ? { mimeType: media.mimeType } : {}),
+    ...(media.fileSize === undefined ? {} : { size: String(media.fileSize) }),
   };
-
-  return summary;
 }
 
-function documentMediaType(message: Api.Message, document?: Api.Document): string {
-  if (message.sticker) return "sticker";
-  if (message.gif) return "gif";
-  if (message.videoNote) return "video_note";
-  if (message.voice) return "voice";
-  if (message.audio) return "audio";
-  if (message.video) return "video";
-
-  const mimeType = document?.mimeType ?? "";
-  if (mimeType.startsWith("image/")) return "image";
-  if (mimeType.startsWith("video/")) return "video";
-  if (mimeType.startsWith("audio/")) return "audio";
-
-  return "document";
+function toUnixSeconds(date: Date): number {
+  return Math.floor(date.getTime() / 1000);
 }
 
-function documentFileName(document?: Api.Document): string | undefined {
-  return document?.attributes.find(
-    (attribute): attribute is Api.DocumentAttributeFilename =>
-      attribute instanceof Api.DocumentAttributeFilename,
-  )?.fileName;
+function unmarkPeerId(id: number): string {
+  const value = String(id);
+  if (value.startsWith("-100")) return value.slice(4);
+  if (value.startsWith("-")) return value.slice(1);
+  return value;
 }

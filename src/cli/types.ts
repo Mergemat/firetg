@@ -1,4 +1,5 @@
 import type { CreateTelegramClient } from "../telegram";
+import type { LocalStore } from "../localStore";
 
 export type CliIo = {
   stdout: (text: string) => void;
@@ -7,7 +8,7 @@ export type CliIo = {
 };
 
 export type CliContext = {
-  env: Record<string, string | undefined>;
+  store: LocalStore;
   io: CliIo;
   createTelegram?: CreateTelegramClient;
   now?: () => Date;

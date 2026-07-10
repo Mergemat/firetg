@@ -1,5 +1,5 @@
 import { readPositiveInt } from "../args";
-import { writeError, writeJson } from "../output";
+import { writeError, writeSuccess } from "../output";
 import { matchesScopedCommand, runWithTelegram } from "./shared";
 import type { CommandSpec } from "./types";
 
@@ -53,7 +53,7 @@ export const messagesListCommand: CommandSpec = {
     }
 
     return runWithTelegram(context, async (telegram) => {
-      writeJson(context, true, {
+      writeSuccess(context, {
         data: await telegram.listMessages({
           chat,
           limit: readPositiveInt(parsed.flags, "limit", 20),
@@ -144,7 +144,7 @@ export const messagesSearchCommand: CommandSpec = {
 
     return runWithTelegram(context, async (telegram) => {
       if (replyTo !== undefined) {
-        writeJson(context, true, {
+        writeSuccess(context, {
           data: await telegram.listReplies({
             chat,
             messageId: replyTo,
@@ -155,7 +155,7 @@ export const messagesSearchCommand: CommandSpec = {
         return 0;
       }
 
-      writeJson(context, true, {
+      writeSuccess(context, {
         data: await telegram.listMessages({
           chat,
           search: hashtag,
@@ -208,7 +208,7 @@ export const messagesPinnedCommand: CommandSpec = {
     }
 
     return runWithTelegram(context, async (telegram) => {
-      writeJson(context, true, {
+      writeSuccess(context, {
         data: await telegram.listPinnedMessages({
           chat,
           limit: readPositiveInt(parsed.flags, "limit", 20),

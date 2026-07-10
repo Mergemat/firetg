@@ -1,26 +1,22 @@
-import { Api } from "teleproto";
+import type { TelegramClient, tl } from "@mtcute/bun";
 import type { FolderSummary } from "./types";
 
-export function listTelegramFolders(
-  filters: Api.TypeDialogFilter[],
-): FolderSummary[] {
-  return filters.map(serializeFolder);
+export async function listTelegramFolders(
+  client: TelegramClient,
+): Promise<FolderSummary[]> {
+  return (await client.getFolders()).filters.map(serializeFolder);
 }
 
-function serializeFolder(folder: Api.TypeDialogFilter): FolderSummary {
-  if (folder instanceof Api.DialogFilterDefault) {
-    return { title: "All chats", type: folder.className };
+function serializeFolder(folder: tl.TypeDialogFilter): FolderSummary {
+  if (folder._ === "dialogFilterDefault") {
+    return { title: "All chats", type: folder._ };
   }
 
   return {
     id: folder.id,
-    title: textWithEntitiesToString(folder.title),
-    type: folder.className,
-    emoticon: folder.emoticon,
-    color: folder.color,
+    title: folder.title.text,
+    type: folder._,
+    ...(folder.emoticon ? { emoticon: folder.emoticon } : {}),
+    ...(folder.color === undefined ? {} : { color: folder.color }),
   };
-}
-
-function textWithEntitiesToString(value: Api.TypeTextWithEntities): string {
-  return "text" in value ? value.text : "";
 }

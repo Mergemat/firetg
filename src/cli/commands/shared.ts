@@ -1,6 +1,7 @@
-import { readTelegramConfig } from "../../config";
-import { createTeleprotoClient, type FireTgClient } from "../../telegram";
-import { parseFloodWaitSeconds, RateLimitedError } from "../../telegram/errors";
+import { loadTelegramConfig } from "../../config";
+import { ConfigError } from "../../localStore";
+import { createMtcuteClient, type FireTgClient } from "../../telegram";
+import { floodWaitSeconds } from "../../telegram/errors";
 import type { ParsedArgs } from "../args";
 import { errorMessage, writeError } from "../output";
 import type { CliContext } from "../types";
@@ -14,23 +15,11 @@ export async function runWithTelegram(
     ) => Promise<number | undefined> | number | undefined;
   } = {},
 ): Promise<number> {
-  const configResult = await readTelegramConfig(context.env);
-
-  if (!configResult.config) {
-    writeError(
-      context,
-      "CONFIG_ERROR",
-      `Missing ${configResult.missing.join(", ")}`,
-    );
-    return 1;
-  }
-
   let telegram: FireTgClient | undefined;
 
   try {
-    telegram = await (context.createTelegram ?? createTeleprotoClient)(
-      configResult.config,
-    );
+    const config = await loadTelegramConfig(context.store);
+    telegram = await (context.createTelegram ?? createMtcuteClient)(config);
     return await handler(telegram);
   } catch (error) {
     const handled = await options.onError?.(error);
@@ -38,20 +27,12 @@ export async function runWithTelegram(
 
     return writeTelegramError(context, error);
   } finally {
-    await telegram?.disconnect?.();
+    await telegram?.disconnect().catch(() => undefined);
   }
 }
 
 function writeTelegramError(context: CliContext, error: unknown): number {
-  if (error instanceof RateLimitedError) {
-    writeError(context, "RATE_LIMITED", error.message, {
-      blockedUntil: error.blockedUntil,
-      remainingSeconds: error.remainingSeconds,
-    });
-    return 2;
-  }
-
-  const waitSeconds = parseFloodWaitSeconds(error);
+  const waitSeconds = floodWaitSeconds(error);
   if (waitSeconds !== undefined) {
     const blockedUntil = new Date(
       commandNow(context).getTime() + waitSeconds * 1000,
@@ -66,11 +47,20 @@ function writeTelegramError(context: CliContext, error: unknown): number {
     return 2;
   }
 
-  writeError(context, "TELEGRAM_ERROR", errorMessage(error));
-  return 2;
+  const configFailure = isConfigFailure(error);
+  writeError(
+    context,
+    configFailure ? "CONFIG_ERROR" : "TELEGRAM_ERROR",
+    errorMessage(error),
+  );
+  return configFailure ? 1 : 2;
 }
 
-export function commandNow(context: CliContext): Date {
+function isConfigFailure(error: unknown): boolean {
+  return error instanceof ConfigError;
+}
+
+function commandNow(context: CliContext): Date {
   return context.now?.() ?? new Date();
 }
 
