@@ -1,0 +1,47 @@
+:root {
+  --vp-c-brand-1: #d14b22;
+  --vp-c-brand-2: #b83c18;
+  --vp-c-brand-3: #9d3215;
+  --vp-c-brand-soft: rgba(209, 75, 34, 0.14);
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #e85d2a 20%, #f59e0b 90%);
+}
+
+.dark {
+  --vp-c-brand-1: #ff7540;
+  --vp-c-brand-2: #ff8c61;
+  --vp-c-brand-3: #ffad8d;
+  --vp-c-brand-soft: rgba(255, 117, 64, 0.14);
+}
+
+.VPNavBarTitle .title {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.VPNavBarTitle .title::before {
+  content: ">";
+  margin-right: 0.35rem;
+  color: var(--vp-c-brand-1);
+  font-family: var(--vp-font-family-mono);
+}
+
+.VPHomeHero .name,
+.VPHomeHero .text {
+  letter-spacing: -0.035em;
+}
+
+.VPFeature {
+  border-radius: 12px !important;
+}
+
+.vp-doc table {
+  display: table;
+  width: 100%;
+}
+
+@media (max-width: 767px) {
+  .vp-doc table {
+    display: block;
+  }
+}
