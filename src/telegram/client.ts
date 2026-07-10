@@ -1,66 +1,71 @@
-import { TelegramClient } from "teleproto";
-import { Logger, LogLevel } from "teleproto/extensions/Logger";
-import { StringSession } from "teleproto/sessions";
+import { rm } from "node:fs/promises";
+import { TelegramClient } from "@mtcute/bun";
+import { convertFromGramjsSession } from "@mtcute/convert";
 import type { TelegramConfig } from "../config";
+import { secureSqliteFiles } from "../localStore";
 import { loginTelegramAccount } from "./auth";
 import { getChannelDetails } from "./channels";
-import {
-  createTeleprotoDialogSource,
-  listDialogSummaries,
-} from "./dialogs";
+import { listDialogSummaries } from "./dialogs";
 import { listTelegramFolders } from "./folders";
 import {
-  listTelegramReplies,
   listTelegramMessages,
   listTelegramPinnedMessages,
+  listTelegramReplies,
   sendTelegramMessage,
 } from "./messages";
-import { createPeerResolver } from "./peers";
 import { getCurrentAccount, getPublicProfile } from "./profile";
 import type { FireTgClient } from "./types";
 
-export async function createTeleprotoClient(
+export async function createMtcuteClient(
   config: TelegramConfig,
 ): Promise<FireTgClient> {
-  const client = new TelegramClient(
-    new StringSession(config.session),
-    config.apiId,
-    config.apiHash,
-    {
-      baseLogger: new Logger(LogLevel.NONE),
-      connectionRetries: 5,
-      autoReconnect: false,
-      reconnectRetries: 0,
-    },
-  );
+  const client = new TelegramClient({
+    apiId: config.apiId,
+    apiHash: config.apiHash,
+    storage: config.storagePath,
+    disableUpdates: true,
+    logLevel: 0,
+  });
 
-  if (config.session) {
-    await client.connect();
+  if (config.legacySession) {
+    try {
+      await client.importSession(convertFromGramjsSession(config.legacySession));
+      await client.getMe();
+      await Promise.all(
+        [config.legacySessionPath, config.legacyPeersPath].flatMap((path) =>
+          path ? [rm(path, { force: true })] : [],
+        ),
+      );
+    } catch (error) {
+      await client.destroy().catch(() => undefined);
+      throw new Error(
+        `Could not migrate the legacy Telegram session: ${errorMessage(error)}. Run firetg auth login to create a new mtcute session.`,
+        { cause: error },
+      );
+    }
   }
 
-  const dialogSource = createTeleprotoDialogSource(client);
-  const resolver = createPeerResolver(client, config.peersPath);
+  await secureSqliteFiles(config.storagePath);
 
   return {
-    login: (params) => loginTelegramAccount(client, config, params),
+    login: (params) => loginTelegramAccount(client, params),
     logout: async () => {
-      if (!(await client.logOut())) {
-        throw new Error("Telegram logout failed");
-      }
+      await client.logOut();
     },
     getMe: () => getCurrentAccount(client),
-    getProfile: (username) => getPublicProfile(client, resolver, username),
-    getChannel: (channel) => getChannelDetails(client, resolver, channel),
-    sendMessage: (to, text) => sendTelegramMessage(client, resolver, to, text),
-    listFolders: async () =>
-      listTelegramFolders(await dialogSource.getDialogFilters()),
-    listDialogs: (options) => listDialogSummaries(dialogSource, options),
-    listMessages: (options) => listTelegramMessages(client, resolver, options),
-    listReplies: (options) => listTelegramReplies(client, resolver, options),
+    getProfile: (username) => getPublicProfile(client, username),
+    getChannel: (channel) => getChannelDetails(client, channel),
+    sendMessage: (to, message) => sendTelegramMessage(client, to, message),
+    listFolders: () => listTelegramFolders(client),
+    listDialogs: (options) => listDialogSummaries(client, options),
+    listMessages: (options) => listTelegramMessages(client, options),
+    listReplies: (options) => listTelegramReplies(client, options),
     listPinnedMessages: (options) =>
-      listTelegramPinnedMessages(client, resolver, options),
-    disconnect: async () => {
-      await client.destroy();
-    },
+      listTelegramPinnedMessages(client, options),
+    disconnect: () => client.destroy(),
   };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

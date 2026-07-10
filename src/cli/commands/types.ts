@@ -14,12 +14,12 @@ export type CommandOption = {
   defaultValue?: string;
 };
 
-export type CommandExample = {
+type CommandExample = {
   command: string;
   summary?: string;
 };
 
-export type CommandHelp = {
+type CommandHelp = {
   summary: string;
   description?: string;
   options?: CommandOption[];

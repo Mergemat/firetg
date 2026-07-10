@@ -1,55 +1,47 @@
-import {
-  readApiCredentials,
-  readSession,
-  resolveStorePaths,
-  type ApiCredentials,
-} from "./localStore";
+import { ConfigError, type LocalStore } from "./localStore";
 
 export type TelegramConfig = {
   apiId: number;
   apiHash: string;
-  session?: string;
-  sessionPath?: string;
-  peersPath?: string;
+  storagePath: string;
+  legacySession?: string;
+  legacySessionPath?: string;
+  legacyPeersPath?: string;
 };
 
-export async function readTelegramConfig(
-  env: Record<string, string | undefined>,
-  options: { requireSession?: boolean } = {},
-): Promise<{
-  config?: TelegramConfig;
-  missing: string[];
-}> {
-  const credentialsLookup = await readApiCredentials(env);
-  if (credentialsLookup.source === "missing") {
-    return { missing: [`config file at ${credentialsLookup.path}`] };
+export async function loadTelegramConfig(
+  store: LocalStore,
+  options: { requireAuth?: boolean } = {},
+): Promise<TelegramConfig> {
+  const credentials = await store.readCredentials();
+  if (!credentials) {
+    throw new ConfigError(
+      `Missing config file at ${store.paths.config}`,
+      store.paths.config,
+    );
   }
 
-  const sessionLookup = await readSession(env);
-  if ((options.requireSession ?? true) && sessionLookup.source === "missing") {
-    return { missing: [`session file at ${sessionLookup.path}`] };
+  const legacySession = await store.readLegacySession();
+  if (
+    (options.requireAuth ?? true) &&
+    !(await store.hasTelegramStorage()) &&
+    !legacySession
+  ) {
+    throw new ConfigError(
+      `Missing Telegram login at ${store.paths.telegram}; run firetg auth login`,
+      store.paths.telegram,
+    );
   }
 
   return {
-    missing: [],
-    config: {
-      apiId: credentialsLookup.value.apiId,
-      apiHash: credentialsLookup.value.apiHash,
-      session: sessionLookup.value,
-      sessionPath:
-        sessionLookup.source === "file" ? sessionLookup.path : undefined,
-      peersPath: resolveStorePaths(env).peers,
-    },
-  };
-}
-
-export function createTelegramConfig(
-  credentials: ApiCredentials,
-  session?: string,
-): TelegramConfig {
-  return {
-    apiId: credentials.apiId,
-    apiHash: credentials.apiHash,
-    session,
+    ...credentials,
+    storagePath: store.paths.telegram,
+    ...(legacySession
+      ? {
+          legacySession,
+          legacySessionPath: store.paths.legacySession,
+          legacyPeersPath: store.paths.legacyPeers,
+        }
+      : {}),
   };
 }
