@@ -64,14 +64,14 @@ export class LocalStore {
       value = JSON.parse(contents);
     } catch {
       throw new ConfigError(
-        `Invalid JSON in config file at ${this.paths.config}`,
+        `Invalid JSON in config file at ${this.paths.config}; fix or remove the file, then run firetg auth login`,
         this.paths.config,
       );
     }
 
     if (!isApiCredentials(value)) {
       throw new ConfigError(
-        `Invalid Telegram credentials in config file at ${this.paths.config}`,
+        `Invalid Telegram credentials in config file at ${this.paths.config}; expected {"apiId":<positive integer>,"apiHash":"<non-empty string>"}. Fix or remove the file, then run firetg auth login`,
         this.paths.config,
       );
     }

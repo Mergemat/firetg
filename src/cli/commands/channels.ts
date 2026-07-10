@@ -1,6 +1,10 @@
 import { readPositiveInt } from "../args";
-import { writeError, writeSuccess } from "../output";
-import { matchesScopedCommand, runWithTelegram } from "./shared";
+import { writeInputError, writeSuccess } from "../output";
+import {
+  matchesScopedCommand,
+  messagesForOutput,
+  runWithTelegram,
+} from "./shared";
 import type { CommandInput, CommandSpec } from "./types";
 
 export const channelViewCommand: CommandSpec = {
@@ -43,18 +47,18 @@ export const channelViewCommand: CommandSpec = {
     const id = parsed.flags.get("id")?.trim();
 
     if (!username && !id) {
-      writeError(
+      writeInputError(
         context,
-        "INPUT_ERROR",
+        channelViewCommand,
         "channels view requires --username or --id",
       );
       return Promise.resolve(1);
     }
 
     if (username && id) {
-      writeError(
+      writeInputError(
         context,
-        "INPUT_ERROR",
+        channelViewCommand,
         "channels view accepts either --username or --id, not both",
       );
       return Promise.resolve(1);
@@ -91,6 +95,12 @@ export const channelMessagesCommand: CommandSpec = {
         value: "<n>",
         summary: "Maximum messages to return",
         defaultValue: "20",
+        integer: { min: 1, max: 100 },
+      },
+      {
+        name: "--full-text",
+        summary:
+          "Return complete message text instead of the 1000-character preview",
       },
     ],
     examples: [
@@ -104,16 +114,19 @@ export const channelMessagesCommand: CommandSpec = {
   run: ({ parsed, context }) => {
     const channel = readChannelLookup(parsed.flags);
     if (!channel) {
-      writeChannelLookupError(context, parsed.flags, "channels messages");
+      writeChannelLookupError(context, parsed.flags, channelMessagesCommand);
       return Promise.resolve(1);
     }
 
     return runWithTelegram(context, async (telegram) => {
       writeSuccess(context, {
-        data: await telegram.listMessages({
-          chat: channel,
-          limit: readPositiveInt(parsed.flags, "limit", 20),
-        }),
+        data: messagesForOutput(
+          await telegram.listMessages({
+            chat: channel,
+            limit: readPositiveInt(parsed.flags, "limit", 20),
+          }),
+          parsed.flags.has("full-text"),
+        ),
       });
       return 0;
     });
@@ -142,6 +155,12 @@ export const channelPinnedCommand: CommandSpec = {
         value: "<n>",
         summary: "Maximum pinned messages to return",
         defaultValue: "20",
+        integer: { min: 1, max: 100 },
+      },
+      {
+        name: "--full-text",
+        summary:
+          "Return complete message text instead of the 1000-character preview",
       },
     ],
     examples: [
@@ -155,16 +174,19 @@ export const channelPinnedCommand: CommandSpec = {
   run: ({ parsed, context }) => {
     const channel = readChannelLookup(parsed.flags);
     if (!channel) {
-      writeChannelLookupError(context, parsed.flags, "channels pinned");
+      writeChannelLookupError(context, parsed.flags, channelPinnedCommand);
       return Promise.resolve(1);
     }
 
     return runWithTelegram(context, async (telegram) => {
       writeSuccess(context, {
-        data: await telegram.listPinnedMessages({
-          chat: channel,
-          limit: readPositiveInt(parsed.flags, "limit", 20),
-        }),
+        data: messagesForOutput(
+          await telegram.listPinnedMessages({
+            chat: channel,
+            limit: readPositiveInt(parsed.flags, "limit", 20),
+          }),
+          parsed.flags.has("full-text"),
+        ),
       });
       return 0;
     });
@@ -186,16 +208,17 @@ function readChannelLookup(
 function writeChannelLookupError(
   context: CommandInput["context"],
   flags: Map<string, string>,
-  command: string,
+  command: CommandSpec,
 ) {
   const username = flags.get("username")?.trim();
   const id = flags.get("id")?.trim();
 
-  writeError(
+  const label = command.id.replace(".", " ");
+  writeInputError(
     context,
-    "INPUT_ERROR",
+    command,
     username && id
-      ? `${command} accepts either --username or --id, not both`
-      : `${command} requires --username or --id`,
+      ? `${label} accepts either --username or --id, not both`
+      : `${label} requires --username or --id`,
   );
 }

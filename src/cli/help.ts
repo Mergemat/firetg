@@ -28,7 +28,8 @@ GETTING STARTED
   firetg channels pinned --username telegram --limit 20
 
 OUTPUT
-  JSON is written to stdout.
+  Successful results and operational errors use JSON on stdout.
+  Usage errors use concise text with relevant help.
   Prompts, QR login, and diagnostics are written to stderr.
 
 FLAGS
@@ -68,6 +69,26 @@ ${renderOptions(globalOptions)}
 `;
 }
 
+export function renderUnknownCommandHelp(
+  args: string[],
+  module?: CommandModule,
+): string {
+  const error = `Unknown command: ${args.join(" ")}.`;
+
+  if (module) {
+    const commands = module.commands
+      .filter((command) => !command.hidden)
+      .map((command) => `  firetg ${command.usage}`)
+      .join("\n");
+    return `${error}\n\nAvailable ${module.scope} commands:\n${commands}\n`;
+  }
+
+  const modules = commandModules
+    .map((candidate) => `  ${candidate.scope} - ${candidate.summary}`)
+    .join("\n");
+  return `${error}\n\nAvailable command groups:\n${modules}\n`;
+}
+
 export function renderCommandHelp(command: CommandSpec): string {
   const sections = [
     renderOptionSection([...(command.help.options ?? []), ...globalOptions]),
@@ -98,7 +119,7 @@ function renderOptionSection(options: CommandOption[]): string {
 }
 
 function renderOptions(options: CommandOption[]): string {
-  const flags: [string, string][] = options.map((option) => [
+  const flags: [string, string][] = options.filter((option) => !option.hidden).map((option) => [
     optionLabel(option),
     optionDescription(option),
   ]);

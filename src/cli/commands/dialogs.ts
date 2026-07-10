@@ -15,12 +15,14 @@ export const dialogsListCommand: CommandSpec = {
         name: "--folder",
         value: "<id>",
         summary: "Folder id from folders list, or 1 for archive",
+        integer: { min: 0 },
       },
       {
         name: "--limit",
         value: "<n>",
         summary: "Maximum dialogs to return",
         defaultValue: "20",
+        integer: { min: 1, max: 100 },
       },
     ],
     examples: [

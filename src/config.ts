@@ -16,7 +16,7 @@ export async function loadTelegramConfig(
   const credentials = await store.readCredentials();
   if (!credentials) {
     throw new ConfigError(
-      `Missing config file at ${store.paths.config}`,
+      `Missing config file at ${store.paths.config}; run firetg auth login interactively`,
       store.paths.config,
     );
   }

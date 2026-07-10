@@ -9,7 +9,7 @@ Read the current account or one Telegram user profile.
 ## `profiles me`
 
 ```text
-firetg profiles me
+firetg profiles me [--include-private]
 ```
 
 Returns the Telegram account attached to the stored session.
@@ -23,17 +23,19 @@ firetg profiles me
   "id": "116040563",
   "firstName": "Fire",
   "username": "firetg",
-  "lastName": "TG",
-  "phone": "10000000000"
+  "lastName": "TG"
 }
 ```
 
-Optional fields are omitted when Telegram does not provide them. The legacy alias is `firetg me`.
+Phone numbers are omitted by default to keep private data out of agent context.
+Pass `--include-private` only when the task requires it. Other optional fields
+are omitted when Telegram does not provide them. The legacy alias is
+`firetg me`.
 
 ## `profiles get`
 
 ```text
-firetg profiles get <username|user-id>
+firetg profiles get <username|user-id> [--include-private]
 ```
 
 Returns one Telegram user profile. Usernames may include the leading `@`. Numeric IDs must already be known to the current Telegram session.
@@ -62,7 +64,7 @@ The response can include:
 | `firstName` | string | Always present |
 | `lastName` | string | Optional |
 | `username` | string | Optional |
-| `phone` | string | Optional and privacy-dependent |
+| `phone` | string | Only with `--include-private`, when Telegram exposes it |
 | `about` | string | Profile bio, when available |
 | `bot` | boolean | Bot account flag |
 | `verified` | boolean | Telegram verification flag |

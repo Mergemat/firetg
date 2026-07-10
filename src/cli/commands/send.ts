@@ -1,6 +1,11 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
-import { writeError, writeSuccess } from "../output";
+import {
+  errorMessage,
+  writeError,
+  writeInputError,
+  writeSuccess,
+} from "../output";
 import { matchesScopedCommand, runWithTelegram } from "./shared";
 import type { CommandSpec } from "./types";
 
@@ -13,6 +18,12 @@ export const sendCommand: CommandSpec = {
     description:
       "Sends a text message or local file attachment to a Telegram user and returns the sent message as JSON.",
     options: [
+      {
+        name: "--to",
+        value: "<peer>",
+        summary: "Unsupported legacy destination flag",
+        hidden: true,
+      },
       {
         name: "--username",
         value: "<username>",
@@ -82,9 +93,9 @@ export const sendCommand: CommandSpec = {
     parsed.command === "send",
   async run({ parsed, context }) {
     if (parsed.flags.has("to")) {
-      writeError(
+      writeInputError(
         context,
-        "INPUT_ERROR",
+        sendCommand,
         "messages send does not support --to; use --username or --id",
       );
       return 1;
@@ -102,36 +113,48 @@ export const sendCommand: CommandSpec = {
     const attachment = parsed.flags.get("file") ?? parsed.flags.get("attachment");
 
     if (destinations.length > 1) {
-      writeError(
+      writeInputError(
         context,
-        "INPUT_ERROR",
+        sendCommand,
         "messages send accepts only one destination flag",
       );
       return 1;
     }
 
     if (hasFile && hasAttachment) {
-      writeError(
+      writeInputError(
         context,
-        "INPUT_ERROR",
+        sendCommand,
         "messages send accepts either --file or --attachment, not both",
       );
       return 1;
     }
 
     if ((hasFile || hasAttachment) && !attachment) {
-      writeError(
+      writeInputError(
         context,
-        "INPUT_ERROR",
+        sendCommand,
         "messages send requires a path for --file or --attachment",
       );
       return 1;
     }
 
-    if (!to || (!text && !attachment)) {
-      writeError(
+    if (
+      (parsed.flags.has("document") || parsed.flags.has("force-document")) &&
+      !attachment
+    ) {
+      writeInputError(
         context,
-        "INPUT_ERROR",
+        sendCommand,
+        "messages send accepts --document only with --file",
+      );
+      return 1;
+    }
+
+    if (!to || (!text && !attachment)) {
+      writeInputError(
+        context,
+        sendCommand,
         "messages send requires --username or --id plus --text or --file",
       );
       return 1;
@@ -139,18 +162,18 @@ export const sendCommand: CommandSpec = {
 
     const scheduledAt = parseScheduledAt(scheduledAtFlag);
     if (parsed.flags.has("schedule-at") && scheduledAt === undefined) {
-      writeError(
+      writeInputError(
         context,
-        "INPUT_ERROR",
+        sendCommand,
         "messages send requires --schedule-at to be ISO-8601 date-time or unix seconds",
       );
       return 1;
     }
 
     if (scheduledAt !== undefined && scheduledAt <= Math.floor(Date.now() / 1000)) {
-      writeError(
+      writeInputError(
         context,
-        "INPUT_ERROR",
+        sendCommand,
         "messages send requires --schedule-at to be in the future",
       );
       return 1;
@@ -158,20 +181,33 @@ export const sendCommand: CommandSpec = {
 
     const attachmentPath = attachment ? resolve(attachment) : undefined;
     if (attachmentPath) {
-      const attachmentStat = await stat(attachmentPath).catch(() => undefined);
+      let attachmentStat;
+      try {
+        attachmentStat = await stat(attachmentPath);
+      } catch (error) {
+        if (!isMissingFile(error)) {
+          writeError(
+            context,
+            "CONFIG_ERROR",
+            `Could not access attachment ${attachmentPath}: ${errorMessage(error)}. Check the path and file permissions`,
+          );
+          return 1;
+        }
+      }
       if (!attachmentStat?.isFile()) {
-        writeError(
+        writeInputError(
           context,
-          "INPUT_ERROR",
+          sendCommand,
           `attachment file not found: ${attachmentPath}`,
         );
         return 1;
       }
     }
 
-    return runWithTelegram(context, async (telegram) => {
-      writeSuccess(context, {
-        data: await telegram.sendMessage(
+    return runWithTelegram(
+      context,
+      async (telegram) => {
+        const sent = await telegram.sendMessage(
           to,
           attachmentPath
             ? {
@@ -185,12 +221,29 @@ export const sendCommand: CommandSpec = {
             : scheduledAt === undefined
               ? text ?? ""
               : { text: text ?? "", scheduledAt },
-        ),
-      });
-      return 0;
-    });
+        );
+        writeSuccess(context, {
+          data: {
+            id: sent.id,
+            date: sent.date,
+            ...(sent.media ? { media: sent.media } : {}),
+          },
+        });
+        return 0;
+      },
+      { operation: "send" },
+    );
   },
 };
+
+function isMissingFile(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ENOENT"
+  );
+}
 
 function parseScheduledAt(value: string | undefined): number | undefined {
   if (!value) return undefined;
