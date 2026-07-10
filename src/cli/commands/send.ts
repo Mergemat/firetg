@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
-import { writeError, writeJson } from "../output";
+import { writeError, writeSuccess } from "../output";
 import { matchesScopedCommand, runWithTelegram } from "./shared";
 import type { CommandSpec } from "./types";
 
@@ -170,7 +170,7 @@ export const sendCommand: CommandSpec = {
     }
 
     return runWithTelegram(context, async (telegram) => {
-      writeJson(context, true, {
+      writeSuccess(context, {
         data: await telegram.sendMessage(
           to,
           attachmentPath

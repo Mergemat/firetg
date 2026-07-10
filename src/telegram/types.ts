@@ -1,9 +1,9 @@
 import type { TelegramConfig } from "../config";
 
 export type Account = {
-  id?: string;
+  id: string;
+  firstName: string;
   username?: string;
-  firstName?: string;
   lastName?: string;
   phone?: string;
 };
@@ -19,9 +19,9 @@ export type Profile = Account & {
 };
 
 export type SentMessage = {
-  id?: number;
-  date?: number;
-  text?: string;
+  id: number;
+  date: number;
+  text: string;
   media?: MessageMediaSummary;
 };
 
@@ -34,13 +34,13 @@ export type SendMessageInput = {
 };
 
 export type DialogSummary = {
-  id?: string;
-  title?: string;
+  id: string;
+  title: string;
   folderId?: number;
-  unreadCount?: number;
-  isUser?: boolean;
-  isGroup?: boolean;
-  isChannel?: boolean;
+  unreadCount: number;
+  isUser: boolean;
+  isGroup: boolean;
+  isChannel: boolean;
 };
 
 export type FolderSummary = {
@@ -52,14 +52,14 @@ export type FolderSummary = {
 };
 
 export type MessageSummary = {
-  id?: number;
-  date?: number;
-  text?: string;
+  id: number;
+  date: number;
+  text: string;
   media?: MessageMediaSummary;
-  senderId?: string;
-  chatId?: string;
+  senderId: string;
+  chatId: string;
   replyToMessageId?: number;
-  outgoing?: boolean;
+  outgoing: boolean;
   readReceipt?: MessageReadReceipt;
 };
 
@@ -79,8 +79,8 @@ export type MessageMediaSummary = {
 };
 
 export type ChannelDetails = {
-  id?: string;
-  title?: string;
+  id: string;
+  title: string;
   username?: string;
   description?: string;
   participantsCount?: number;
@@ -100,12 +100,12 @@ export type LoginParams =
     }
   | {
       mode: "qr";
-      qrCode: (qrCode: { token: Buffer; expires: number }) => Promise<void>;
+      qrCode: (qrCode: { url: string; expires: Date }) => void;
       password: (hint?: string) => Promise<string>;
     };
 
 export type FireTgClient = {
-  login: (params: LoginParams) => Promise<{ session: string }>;
+  login: (params: LoginParams) => Promise<Account>;
   logout: () => Promise<void>;
   getMe: () => Promise<Account>;
   getProfile: (user: string) => Promise<Profile>;
@@ -131,7 +131,7 @@ export type FireTgClient = {
     chat: string;
     limit: number;
   }) => Promise<MessageSummary[]>;
-  disconnect?: () => Promise<void>;
+  disconnect: () => Promise<void>;
 };
 
 export type CreateTelegramClient = (config: TelegramConfig) => Promise<FireTgClient>;

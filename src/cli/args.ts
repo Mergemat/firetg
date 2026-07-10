@@ -16,7 +16,7 @@ export function parseArgs(args: string[]): ParsedArgs {
   };
 }
 
-export function parseFlags(args: string[]): Map<string, string> {
+function parseFlags(args: string[]): Map<string, string> {
   const flags = new Map<string, string>();
 
   for (let index = 0; index < args.length; index += 1) {

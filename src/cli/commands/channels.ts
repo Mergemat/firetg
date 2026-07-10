@@ -1,5 +1,5 @@
 import { readPositiveInt } from "../args";
-import { writeError, writeJson } from "../output";
+import { writeError, writeSuccess } from "../output";
 import { matchesScopedCommand, runWithTelegram } from "./shared";
 import type { CommandInput, CommandSpec } from "./types";
 
@@ -61,7 +61,7 @@ export const channelViewCommand: CommandSpec = {
     }
 
     return runWithTelegram(context, async (telegram) => {
-      writeJson(context, true, {
+      writeSuccess(context, {
         data: await telegram.getChannel(username ?? id ?? ""),
       });
       return 0;
@@ -102,14 +102,14 @@ export const channelMessagesCommand: CommandSpec = {
   },
   matches: (parsed) => matchesScopedCommand(parsed, "channels", "messages"),
   run: ({ parsed, context }) => {
-    const channel = readChannelLookup(parsed.flags, "channels messages");
+    const channel = readChannelLookup(parsed.flags);
     if (!channel) {
       writeChannelLookupError(context, parsed.flags, "channels messages");
       return Promise.resolve(1);
     }
 
     return runWithTelegram(context, async (telegram) => {
-      writeJson(context, true, {
+      writeSuccess(context, {
         data: await telegram.listMessages({
           chat: channel,
           limit: readPositiveInt(parsed.flags, "limit", 20),
@@ -153,14 +153,14 @@ export const channelPinnedCommand: CommandSpec = {
   },
   matches: (parsed) => matchesScopedCommand(parsed, "channels", "pinned"),
   run: ({ parsed, context }) => {
-    const channel = readChannelLookup(parsed.flags, "channels pinned");
+    const channel = readChannelLookup(parsed.flags);
     if (!channel) {
       writeChannelLookupError(context, parsed.flags, "channels pinned");
       return Promise.resolve(1);
     }
 
     return runWithTelegram(context, async (telegram) => {
-      writeJson(context, true, {
+      writeSuccess(context, {
         data: await telegram.listPinnedMessages({
           chat: channel,
           limit: readPositiveInt(parsed.flags, "limit", 20),
@@ -173,7 +173,6 @@ export const channelPinnedCommand: CommandSpec = {
 
 function readChannelLookup(
   flags: Map<string, string>,
-  command: string,
 ): string | undefined {
   const username = flags.get("username")?.trim();
   const id = flags.get("id")?.trim();

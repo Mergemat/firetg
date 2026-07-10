@@ -6,12 +6,11 @@ export type ErrorCode =
   | "RATE_LIMITED"
   | "TELEGRAM_ERROR";
 
-export function writeJson(
+export function writeSuccess(
   context: CliContext,
-  ok: boolean,
-  body: { data?: unknown; error?: unknown },
+  body: { data: unknown },
 ) {
-  context.io.stdout(`${JSON.stringify(ok ? body.data : { ok, ...body })}\n`);
+  context.io.stdout(`${JSON.stringify(body.data)}\n`);
 }
 
 export function writeError(
@@ -20,13 +19,14 @@ export function writeError(
   message: string,
   details: Record<string, unknown> = {},
 ) {
-  writeJson(context, false, {
+  context.io.stdout(`${JSON.stringify({
+    ok: false,
     error: {
       code,
       message,
       ...details,
     },
-  });
+  })}\n`);
 }
 
 export function errorMessage(error: unknown): string {

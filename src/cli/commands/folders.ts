@@ -1,4 +1,4 @@
-import { writeJson } from "../output";
+import { writeSuccess } from "../output";
 import { matchesScopedCommand, runWithTelegram } from "./shared";
 import type { CommandSpec } from "./types";
 
@@ -22,7 +22,7 @@ export const foldersListCommand: CommandSpec = {
     parsed.command === "folders:list",
   run: ({ context }) =>
     runWithTelegram(context, async (telegram) => {
-      writeJson(context, true, { data: await telegram.listFolders() });
+      writeSuccess(context, { data: await telegram.listFolders() });
       return 0;
     }),
 };

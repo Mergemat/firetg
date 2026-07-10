@@ -10,16 +10,15 @@ Owns Telegram account authentication state.
 
 - `auth login` creates API credentials when needed and stores a Telegram session.
 - `auth logout` removes the stored Telegram session.
-- Credentials and session files are Auth implementation details.
+- Credentials and mtcute's SQLite database are Auth implementation details.
 
 ### Peer
 
 Represents any Telegram destination: a user, group chat, or channel.
 
-- Every command that accepts a username, id, or peer alias resolves it through one shared peer resolver.
-- Resolved peers (id plus access hash) are cached in `peers.json`, so a peer is resolved against Telegram at most once.
-- On a cache miss the resolver calls `contacts.ResolveUsername`; when Telegram flood-limits resolves it falls back to scanning dialogs and stores the flood deadline, refusing further resolve calls until it passes.
-- Stale cached access hashes self-heal: the operation re-resolves the peer once and retries.
+- Every command normalizes usernames, marked ids, and peer aliases before handing them to mtcute.
+- mtcute's SQLite storage persists peers and access hashes across commands.
+- Legacy Teleproto/GramJS sessions are converted once with mtcute's official converter.
 - Flood waits surface as `RATE_LIMITED` errors with `blockedUntil` and `remainingSeconds`.
 
 ### Profile
@@ -27,7 +26,7 @@ Represents any Telegram destination: a user, group chat, or channel.
 Represents the currently authenticated Telegram account.
 
 - `profiles me` returns the current account profile.
-- `profiles get <username|user-id>` returns a public user profile, including the Telegram bio/description when available.
+- `profiles get <username|user-id>` uses mtcute's full-user API and returns the Telegram bio when available.
 - Use Profile for account identity reads, not Auth.
 
 ### Channel
@@ -57,7 +56,7 @@ Represents Telegram message actions for a peer.
 Represents a Telegram chat entry in the user's dialog list.
 
 - `dialogs list` lists chats.
-- Dialogs can be scoped to a Folder.
+- Dialogs can be scoped to a Folder through mtcute's native folder filtering.
 
 ### Folder
 

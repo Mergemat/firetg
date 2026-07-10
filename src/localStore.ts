@@ -1,4 +1,13 @@
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 export type ApiCredentials = {
@@ -6,119 +15,161 @@ export type ApiCredentials = {
   apiHash: string;
 };
 
-export type StorePaths = {
+export type AppPaths = {
   directory: string;
   config: string;
-  peers: string;
-  session: string;
+  telegram: string;
+  legacySession: string;
+  legacyPeers: string;
 };
 
-export type FileLookup<T> =
-  | { value: T; source: "file"; path: string }
-  | { value?: undefined; source: "missing"; path: string };
-
-export function resolveStorePaths(
-  env: Record<string, string | undefined>,
-): StorePaths {
-  const configRoot = env.XDG_CONFIG_HOME ?? join(env.HOME ?? ".", ".config");
-  const directory = join(configRoot, "firetg");
-
-  return {
-    directory,
-    config: join(directory, "config.json"),
-    peers: join(directory, "peers.json"),
-    session: join(directory, "session"),
-  };
-}
-
-export async function readApiCredentials(
-  env: Record<string, string | undefined>,
-): Promise<FileLookup<ApiCredentials>> {
-  const path = resolveStorePaths(env).config;
-
-  try {
-    const parsed = JSON.parse(await readFile(path, "utf8")) as {
-      apiId?: unknown;
-      apiHash?: unknown;
-    };
-
-    if (typeof parsed.apiId !== "number" || typeof parsed.apiHash !== "string") {
-      return { source: "missing", path };
-    }
-
-    return {
-      source: "file",
-      path,
-      value: { apiId: parsed.apiId, apiHash: parsed.apiHash },
-    };
-  } catch (error) {
-    if (isMissingFile(error)) {
-      return { source: "missing", path };
-    }
-    throw error;
+export class ConfigError extends Error {
+  constructor(
+    message: string,
+    readonly path: string,
+  ) {
+    super(message);
+    this.name = "ConfigError";
   }
 }
 
-export async function writeApiCredentials(
-  env: Record<string, string | undefined>,
-  credentials: ApiCredentials,
-): Promise<string> {
-  const paths = resolveStorePaths(env);
+export class LocalStore {
+  readonly paths: AppPaths;
 
-  await ensureStoreDirectory(paths.directory);
-  await writeFile(
-    paths.config,
-    `${JSON.stringify(credentials, null, 2)}\n`,
-    { mode: 0o600 },
+  constructor(configHome = join(homedir(), ".config")) {
+    const directory = join(configHome, "firetg");
+    this.paths = {
+      directory,
+      config: join(directory, "config.json"),
+      telegram: join(directory, "telegram.sqlite"),
+      legacySession: join(directory, "session"),
+      legacyPeers: join(directory, "peers.json"),
+    };
+  }
+
+  async readCredentials(): Promise<ApiCredentials | undefined> {
+    let contents: string;
+    try {
+      contents = await readFile(this.paths.config, "utf8");
+    } catch (error) {
+      if (isMissingFile(error)) return undefined;
+      throw new ConfigError(
+        `Could not read config file at ${this.paths.config}: ${errorMessage(error)}`,
+        this.paths.config,
+      );
+    }
+
+    let value: unknown;
+    try {
+      value = JSON.parse(contents);
+    } catch {
+      throw new ConfigError(
+        `Invalid JSON in config file at ${this.paths.config}`,
+        this.paths.config,
+      );
+    }
+
+    if (!isApiCredentials(value)) {
+      throw new ConfigError(
+        `Invalid Telegram credentials in config file at ${this.paths.config}`,
+        this.paths.config,
+      );
+    }
+
+    return value;
+  }
+
+  async writeCredentials(credentials: ApiCredentials): Promise<void> {
+    if (!isApiCredentials(credentials)) {
+      throw new ConfigError("Invalid Telegram API credentials", this.paths.config);
+    }
+
+    await this.ensureDirectory();
+    const temporary = `${this.paths.config}.${process.pid}.tmp`;
+
+    try {
+      await writeFile(temporary, `${JSON.stringify(credentials, null, 2)}\n`, {
+        mode: 0o600,
+      });
+      await rename(temporary, this.paths.config);
+      await chmod(this.paths.config, 0o600);
+    } finally {
+      await rm(temporary, { force: true });
+    }
+  }
+
+  async hasTelegramStorage(): Promise<boolean> {
+    try {
+      return (await stat(this.paths.telegram)).isFile();
+    } catch (error) {
+      if (isMissingFile(error)) return false;
+      throw new ConfigError(
+        `Could not inspect Telegram storage at ${this.paths.telegram}: ${errorMessage(error)}`,
+        this.paths.telegram,
+      );
+    }
+  }
+
+  async readLegacySession(): Promise<string | undefined> {
+    try {
+      const session = (await readFile(this.paths.legacySession, "utf8")).trim();
+      return session || undefined;
+    } catch (error) {
+      if (isMissingFile(error)) return undefined;
+      throw new ConfigError(
+        `Could not read legacy session at ${this.paths.legacySession}: ${errorMessage(error)}`,
+        this.paths.legacySession,
+      );
+    }
+  }
+
+  async removeLegacyState(): Promise<void> {
+    await Promise.all([
+      rm(this.paths.legacySession, { force: true }),
+      rm(this.paths.legacyPeers, { force: true }),
+    ]);
+  }
+
+  async removeTelegramStorage(): Promise<void> {
+    await Promise.all(
+      ["", "-shm", "-wal"].map((suffix) =>
+        rm(`${this.paths.telegram}${suffix}`, { force: true }),
+      ),
+    );
+  }
+
+  async secureTelegramStorage(): Promise<void> {
+    await this.ensureDirectory();
+    await secureSqliteFiles(this.paths.telegram);
+  }
+
+  private async ensureDirectory(): Promise<void> {
+    await mkdir(this.paths.directory, { recursive: true, mode: 0o700 });
+    await chmod(this.paths.directory, 0o700);
+  }
+}
+
+export async function secureSqliteFiles(path: string): Promise<void> {
+  await Promise.all(
+    ["", "-shm", "-wal"].map(async (suffix) => {
+      try {
+        await chmod(`${path}${suffix}`, 0o600);
+      } catch (error) {
+        if (!isMissingFile(error)) throw error;
+      }
+    }),
   );
-  await chmod(paths.config, 0o600);
-
-  return paths.config;
 }
 
-export async function readSession(
-  env: Record<string, string | undefined>,
-): Promise<FileLookup<string>> {
-  const path = resolveStorePaths(env).session;
-
-  try {
-    const session = (await readFile(path, "utf8")).trim();
-    return session
-      ? { source: "file", path, value: session }
-      : { source: "missing", path };
-  } catch (error) {
-    if (isMissingFile(error)) {
-      return { source: "missing", path };
-    }
-    throw error;
-  }
-}
-
-export async function writeSession(
-  env: Record<string, string | undefined>,
-  session: string,
-): Promise<string> {
-  const paths = resolveStorePaths(env);
-
-  await ensureStoreDirectory(paths.directory);
-  await writeFile(paths.session, `${session}\n`, { mode: 0o600 });
-  await chmod(paths.session, 0o600);
-
-  return paths.session;
-}
-
-export async function deleteSession(
-  env: Record<string, string | undefined>,
-): Promise<string> {
-  const path = resolveStorePaths(env).session;
-
-  await rm(path, { force: true });
-  return path;
-}
-
-async function ensureStoreDirectory(directory: string) {
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  await chmod(directory, 0o700);
+function isApiCredentials(value: unknown): value is ApiCredentials {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    Number.isSafeInteger(candidate.apiId) &&
+    (candidate.apiId as number) > 0 &&
+    typeof candidate.apiHash === "string" &&
+    candidate.apiHash.trim().length > 0
+  );
 }
 
 function isMissingFile(error: unknown): boolean {
@@ -128,4 +179,8 @@ function isMissingFile(error: unknown): boolean {
     "code" in error &&
     error.code === "ENOENT"
   );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

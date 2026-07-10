@@ -1,35 +1,29 @@
-import { TelegramClient } from "teleproto";
-import { StringSession } from "teleproto/sessions";
-import type { TelegramConfig } from "../config";
-import type { LoginParams } from "./types";
+import type { TelegramClient } from "@mtcute/bun";
+import type { Account, LoginParams } from "./types";
+import { serializeAccount } from "./profile";
 
 export async function loginTelegramAccount(
   client: TelegramClient,
-  config: TelegramConfig,
   params: LoginParams,
-): Promise<{ session: string }> {
+): Promise<Account> {
   if (params.mode === "qr") {
-    await client.connect();
-    await client.signInUserWithQrCode(
-      { apiId: config.apiId, apiHash: config.apiHash },
-      {
-        qrCode: params.qrCode,
-        password: params.password,
-        onError: (error) => {
-          throw error;
-        },
-      },
+    return serializeAccount(
+      await client.start({
+        qrCodeHandler: (url, expires) => params.qrCode({ url, expires }),
+        password: () => params.password(),
+      }),
     );
-  } else {
-    await client.start({
-      phoneNumber: async () => params.phoneNumber,
-      phoneCode: params.phoneCode,
-      password: params.password,
-      onError: (error) => {
-        throw error;
-      },
-    });
   }
 
-  return { session: (client.session as StringSession).save() };
+  let isCodeViaApp = false;
+  return serializeAccount(
+    await client.start({
+      phone: params.phoneNumber,
+      code: () => params.phoneCode(isCodeViaApp),
+      password: () => params.password(),
+      codeSentCallback: (sent) => {
+        isCodeViaApp = sent.type === "app";
+      },
+    }),
+  );
 }
