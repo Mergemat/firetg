@@ -14,9 +14,9 @@ QR is the default flow:
 firetg auth login
 ```
 
-The terminal prints a QR code and its `tg://` login URL. In Telegram, open **Settings > Devices > Link Desktop Device**, then scan the code. QR codes expire, so firetg replaces the displayed code when Telegram issues a fresh one.
+The terminal prints a QR code. In Telegram, open **Settings > Devices > Link Desktop Device**, then scan the code. QR codes expire, so firetg replaces the displayed code when Telegram issues a fresh one and clears it when login finishes.
 
-If two-step verification is enabled, firetg asks for the account password after the QR scan.
+If two-step verification is enabled, firetg asks for the account password after the QR scan. API hashes, login codes, and passwords are hidden while you type and require an interactive terminal.
 
 ## Phone login
 
@@ -83,6 +83,6 @@ firetg auth login
 firetg auth logout
 ```
 
-firetg asks Telegram to log out the current session when possible, then removes the local SQLite database and legacy session files. API credentials remain in `config.json`, ready for the next login.
+firetg asks Telegram to log out the current session when possible, then removes the local SQLite database and legacy session files even if remote revocation fails. The JSON result reports `localRemoved` and `remoteRevoked` separately. API credentials remain in `config.json`, ready for the next login.
 
 To use a different API application, remove or replace `config.json` before logging in again.
