@@ -1,4 +1,4 @@
-import { writeError, writeJson } from "../output";
+import { writeError, writeSuccess } from "../output";
 import { matchesScopedCommand, runWithTelegram } from "./shared";
 import type { CommandSpec } from "./types";
 
@@ -21,7 +21,7 @@ export const meCommand: CommandSpec = {
     matchesScopedCommand(parsed, "profiles", "me") || parsed.command === "me",
   async run({ context }) {
     return runWithTelegram(context, async (telegram) => {
-      writeJson(context, true, { data: await telegram.getMe() });
+      writeSuccess(context, { data: await telegram.getMe() });
       return 0;
     });
   },
@@ -100,7 +100,7 @@ export const profileViewCommand: CommandSpec = {
     const lookup = positionalLookup ?? username ?? id ?? "";
 
     return runWithTelegram(context, async (telegram) => {
-      writeJson(context, true, { data: await telegram.getProfile(lookup) });
+      writeSuccess(context, { data: await telegram.getProfile(lookup) });
       return 0;
     });
   },

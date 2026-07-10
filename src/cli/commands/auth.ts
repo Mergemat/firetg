@@ -1,14 +1,8 @@
-import { createTelegramConfig, readTelegramConfig } from "../../config";
-import {
-  deleteSession,
-  readApiCredentials,
-  writeApiCredentials,
-  writeSession,
-  type ApiCredentials,
-} from "../../localStore";
-import { createTeleprotoClient, type FireTgClient } from "../../telegram";
+import { loadTelegramConfig } from "../../config";
+import { ConfigError, type ApiCredentials } from "../../localStore";
+import { createMtcuteClient, type FireTgClient } from "../../telegram";
 import { renderQr } from "../qr";
-import { errorMessage, writeError, writeJson } from "../output";
+import { errorMessage, writeError, writeSuccess } from "../output";
 import type { CliContext } from "../types";
 import type { CommandSpec } from "./types";
 
@@ -44,7 +38,7 @@ export const authLogoutCommand: CommandSpec = {
   help: {
     summary: "Revoke and remove the stored Telegram session",
     description:
-      "Logs out the stored Telegram session when possible, then deletes the local session file.",
+      "Logs out the stored Telegram session when possible, then deletes the local session database.",
     examples: [
       {
         command: "firetg auth logout",
@@ -61,42 +55,54 @@ async function runAuthLogin(
   flags: Map<string, string>,
   context: CliContext,
 ): Promise<number> {
-  let configPath: string;
-  let credentials: ApiCredentials;
-  let shouldWriteCredentials: boolean;
-
-  try {
-    ({ credentials, configPath, shouldWriteCredentials } =
-      await readOrPromptCredentials(context));
-  } catch (error) {
-    writeError(context, "INPUT_ERROR", errorMessage(error));
-    return 1;
-  }
-
   let telegram: FireTgClient | undefined;
 
   try {
-    telegram = await (context.createTelegram ?? createTeleprotoClient)(
-      createTelegramConfig(credentials),
-    );
+    const credentials = await readOrPromptCredentials(context);
+    await context.store.writeCredentials(credentials);
+    let config = await loadTelegramConfig(context.store, {
+      requireAuth: false,
+    });
+    try {
+      telegram = await (context.createTelegram ?? createMtcuteClient)(config);
+    } catch (error) {
+      if (!config.legacySession || context.createTelegram) throw error;
 
-    const { session } = flags.has("phone")
-      ? await loginWithPhone(telegram, context)
-      : await loginWithQr(telegram, context);
-    if (shouldWriteCredentials) {
-      await writeApiCredentials(context.env, credentials);
+      await context.store.removeLegacyState();
+      await context.store.removeTelegramStorage();
+      config = await loadTelegramConfig(context.store, { requireAuth: false });
+      telegram = await createMtcuteClient(config);
     }
-    const sessionPath = await writeSession(context.env, session);
 
-    writeJson(context, true, {
-      data: { configPath, sessionPath },
+    if (flags.has("phone")) {
+      await loginWithPhone(telegram, context);
+    } else {
+      await loginWithQr(telegram, context);
+    }
+    await context.store.secureTelegramStorage();
+
+    writeSuccess(context, {
+      data: {
+        configPath: context.store.paths.config,
+        storagePath: context.store.paths.telegram,
+      },
     });
     return 0;
   } catch (error) {
-    writeError(context, "TELEGRAM_ERROR", errorMessage(error));
-    return 2;
+    const isConfigError = error instanceof ConfigError;
+    const isInputError = error instanceof InvalidCredentialsError;
+    writeError(
+      context,
+      isConfigError
+        ? "CONFIG_ERROR"
+        : isInputError
+          ? "INPUT_ERROR"
+          : "TELEGRAM_ERROR",
+      errorMessage(error),
+    );
+    return isConfigError || isInputError ? 1 : 2;
   } finally {
-    await telegram?.disconnect?.();
+    await telegram?.disconnect().catch(() => undefined);
   }
 }
 
@@ -104,62 +110,53 @@ async function runAuthLogout(context: CliContext): Promise<number> {
   let telegram: FireTgClient | undefined;
 
   try {
-    const configResult = await readTelegramConfig(context.env, {
-      requireSession: false,
+    const config = await loadTelegramConfig(context.store, {
+      requireAuth: false,
     });
-
-    if (configResult.config?.session) {
-      telegram = await (context.createTelegram ?? createTeleprotoClient)(
-        configResult.config,
-      );
+    if ((await context.store.hasTelegramStorage()) || config.legacySession) {
+      telegram = await (context.createTelegram ?? createMtcuteClient)(config);
       await telegram.logout();
+      await telegram.disconnect();
+      telegram = undefined;
     }
 
-    const sessionPath = await deleteSession(context.env);
-
-    writeJson(context, true, {
-      data: { sessionPath },
+    await context.store.removeTelegramStorage();
+    await context.store.removeLegacyState();
+    writeSuccess(context, {
+      data: { storagePath: context.store.paths.telegram },
     });
     return 0;
   } catch (error) {
-    writeError(context, "TELEGRAM_ERROR", errorMessage(error));
-    return 2;
+    const isConfigError = error instanceof ConfigError;
+    writeError(
+      context,
+      isConfigError ? "CONFIG_ERROR" : "TELEGRAM_ERROR",
+      errorMessage(error),
+    );
+    return isConfigError ? 1 : 2;
   } finally {
-    await telegram?.disconnect?.();
+    await telegram?.disconnect().catch(() => undefined);
   }
 }
 
 async function readOrPromptCredentials(
   context: CliContext,
-): Promise<{
-  credentials: ApiCredentials;
-  configPath: string;
-  shouldWriteCredentials: boolean;
-}> {
-  const existing = await readApiCredentials(context.env);
-  if (existing.source === "file") {
-    return {
-      credentials: existing.value,
-      configPath: existing.path,
-      shouldWriteCredentials: false,
-    };
-  }
+): Promise<ApiCredentials> {
+  const existing = await context.store.readCredentials();
+  if (existing) return existing;
 
   const apiIdText = await context.io.question("API ID: ");
-  const apiHash = await context.io.question("API hash: ");
+  const apiHash = (await context.io.question("API hash: ")).trim();
   const apiId = Number(apiIdText);
 
-  if (!Number.isInteger(apiId) || apiId <= 0 || !apiHash) {
-    throw new Error("Invalid API credentials");
+  if (!Number.isSafeInteger(apiId) || apiId <= 0 || !apiHash) {
+    throw new InvalidCredentialsError("Invalid API credentials");
   }
 
-  const credentials = { apiId, apiHash };
-  return {
-    credentials,
-    configPath: existing.path,
-    shouldWriteCredentials: true,
-  };
+  return { apiId, apiHash };
 }
+
+class InvalidCredentialsError extends Error {}
 
 async function loginWithPhone(telegram: FireTgClient, context: CliContext) {
   return telegram.login({
@@ -169,33 +166,24 @@ async function loginWithPhone(telegram: FireTgClient, context: CliContext) {
       context.io.question(
         isCodeViaApp ? "Code from Telegram app: " : "Code from SMS: ",
       ),
-    password: (hint) =>
-      context.io.question(
-        hint ? `2FA password (${hint}): ` : "2FA password: ",
-      ),
+    password: () => context.io.question("2FA password: "),
   });
 }
 
-function loginWithQr(telegram: FireTgClient, context: CliContext) {
+async function loginWithQr(telegram: FireTgClient, context: CliContext) {
   let previousQrLineCount = 0;
 
   return telegram.login({
     mode: "qr",
-    qrCode: async ({ token, expires }) => {
-      const url = `tg://login?token=${token.toString("base64url")}`;
-      const qrPrompt = `Scan this QR code in Telegram. Expires at ${new Date(
-        expires * 1000,
-      ).toISOString()}.\n${renderQr(url)}\n${url}\n`;
+    qrCode: ({ url, expires }) => {
+      const qrPrompt = `Scan this QR code in Telegram. Expires at ${expires.toISOString()}.\n${renderQr(url)}\n${url}\n`;
       const clearPreviousQr =
         previousQrLineCount > 0 ? `\x1b[${previousQrLineCount}A\x1b[0J` : "";
 
       context.io.stderr(`${clearPreviousQr}${qrPrompt}`);
       previousQrLineCount = countTerminalLines(qrPrompt);
     },
-    password: (hint) =>
-      context.io.question(
-        hint ? `2FA password (${hint}): ` : "2FA password: ",
-      ),
+    password: () => context.io.question("2FA password: "),
   });
 }
 

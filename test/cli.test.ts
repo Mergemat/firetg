@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  chmod,
-  mkdir,
   mkdtemp,
   readFile,
   stat,
@@ -9,18 +7,23 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { tl } from "@mtcute/bun";
 import { runCli } from "../src/cli";
 import { commandModules } from "../src/cli/commands";
-import { RateLimitedError } from "../src/telegram/errors";
+import { LocalStore } from "../src/localStore";
 import type { FireTgClient, SendMessageInput } from "../src/telegram";
 
 function createHarness() {
   const stdout: string[] = [];
   const stderr: string[] = [];
+  const store = new LocalStore(
+    join(tmpdir(), `firetg-test-${crypto.randomUUID()}`),
+  );
 
   return {
     stdout,
     stderr,
+    store,
     io: {
       stdout: (text: string) => stdout.push(text),
       stderr: (text: string) => stderr.push(text),
@@ -31,44 +34,32 @@ function createHarness() {
 
 function fakeTelegram(overrides: Partial<FireTgClient> = {}): FireTgClient {
   return {
-    login: async () => ({ session: "" }),
+    login: async () => ({ id: "1", firstName: "Test" }),
     logout: async () => {},
-    getMe: async () => ({}),
-    getProfile: async () => ({}),
-    getChannel: async () => ({}),
-    sendMessage: async () => ({}),
+    getMe: async () => ({ id: "1", firstName: "Test" }),
+    getProfile: async () => ({ id: "1", firstName: "Test" }),
+    getChannel: async () => ({ id: "1", title: "Test" }),
+    sendMessage: async () => ({ id: 1, date: 1, text: "" }),
     listFolders: async () => [],
     listDialogs: async () => [],
     listMessages: async () => [],
     listReplies: async () => [],
     listPinnedMessages: async () => [],
+    disconnect: async () => {},
     ...overrides,
   };
 }
 
-async function createStoredAuthEnv(session = "session") {
+async function createStoredAuthStore() {
   const configHome = await mkdtemp(join(tmpdir(), "firetg-test-"));
-  const directory = join(configHome, "firetg");
-  const configPath = join(directory, "config.json");
-  const sessionPath = join(directory, "session");
-
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  await chmod(directory, 0o700);
-  await writeFile(
-    configPath,
-    `${JSON.stringify({ apiId: 123, apiHash: "hash" }, null, 2)}\n`,
-    { mode: 0o600 },
-  );
-  await chmod(configPath, 0o600);
-  await writeFile(sessionPath, `${session}\n`, { mode: 0o600 });
-  await chmod(sessionPath, 0o600);
+  const store = new LocalStore(configHome);
+  await store.writeCredentials({ apiId: 123, apiHash: "hash" });
+  await writeFile(store.paths.telegram, "sqlite", { mode: 0o600 });
 
   return {
-    env: {
-      XDG_CONFIG_HOME: configHome,
-    },
-    configPath,
-    sessionPath,
+    store,
+    configPath: store.paths.config,
+    storagePath: store.paths.telegram,
   };
 }
 
@@ -77,7 +68,7 @@ describe("firetg cli", () => {
     const harness = createHarness();
 
     const exitCode = await runCli(["--help"], {
-      env: {},
+      store: harness.store,
       io: harness.io,
     });
 
@@ -96,7 +87,7 @@ describe("firetg cli", () => {
       const harness = createHarness();
 
       const exitCode = await runCli([module.scope], {
-        env: {},
+        store: harness.store,
         io: harness.io,
       });
 
@@ -114,7 +105,7 @@ describe("firetg cli", () => {
     const harness = createHarness();
 
     const exitCode = await runCli(["messages", "--help"], {
-      env: {},
+      store: harness.store,
       io: harness.io,
     });
 
@@ -130,7 +121,7 @@ describe("firetg cli", () => {
     const harness = createHarness();
 
     const exitCode = await runCli(["messages", "list", "--help"], {
-      env: {},
+      store: harness.store,
       io: harness.io,
     });
 
@@ -145,10 +136,10 @@ describe("firetg cli", () => {
   test("agent command reports missing API config file as JSON", async () => {
     const harness = createHarness();
     const configHome = await mkdtemp(join(tmpdir(), "firetg-test-"));
-    const configPath = join(configHome, "firetg", "config.json");
+    const store = new LocalStore(configHome);
 
     const exitCode = await runCli(["profiles", "me"], {
-      env: { XDG_CONFIG_HOME: configHome },
+      store,
       io: harness.io,
     });
 
@@ -157,29 +148,20 @@ describe("firetg cli", () => {
       ok: false,
       error: {
         code: "CONFIG_ERROR",
-        message: `Missing config file at ${configPath}`,
+        message: `Missing config file at ${store.paths.config}`,
       },
     });
     expect(harness.stderr.join("")).toBe("");
   });
 
-  test("agent command reports missing session file as JSON", async () => {
+  test("agent command reports missing Telegram storage as JSON", async () => {
     const harness = createHarness();
     const configHome = await mkdtemp(join(tmpdir(), "firetg-test-"));
-    const directory = join(configHome, "firetg");
-    const configPath = join(directory, "config.json");
-    const sessionPath = join(directory, "session");
-
-    await mkdir(directory, { recursive: true });
-    await writeFile(
-      configPath,
-      `${JSON.stringify({ apiId: 123, apiHash: "hash" })}\n`,
-    );
+    const store = new LocalStore(configHome);
+    await store.writeCredentials({ apiId: 123, apiHash: "hash" });
 
     const exitCode = await runCli(["profiles", "me"], {
-      env: {
-        XDG_CONFIG_HOME: configHome,
-      },
+      store,
       io: harness.io,
     });
 
@@ -188,17 +170,17 @@ describe("firetg cli", () => {
       ok: false,
       error: {
         code: "CONFIG_ERROR",
-        message: `Missing session file at ${sessionPath}`,
+        message: `Missing Telegram login at ${store.paths.telegram}; run firetg auth login`,
       },
     });
   });
 
   test("profiles me emits the current account as JSON", async () => {
     const harness = createHarness();
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(["profiles", "me"], {
-      env,
+      store,
       io: harness.io,
       createTelegram: async () => fakeTelegram({
         getMe: async () => ({
@@ -225,12 +207,12 @@ describe("firetg cli", () => {
   test("profiles view emits a public profile by username as JSON", async () => {
     const harness = createHarness();
     const viewed: string[] = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(
       ["profiles", "view", "--username", "firetg"],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           getProfile: async (username) => {
@@ -262,12 +244,12 @@ describe("firetg cli", () => {
   test("profiles view accepts a known user id", async () => {
     const harness = createHarness();
     const viewed: string[] = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(
       ["profiles", "view", "--id", "123456789"],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           getProfile: async (user) => {
@@ -294,10 +276,10 @@ describe("firetg cli", () => {
   test("profiles get accepts a positional username", async () => {
     const harness = createHarness();
     const viewed: string[] = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(["profiles", "get", "firetg"], {
-      env,
+      store,
       io: harness.io,
       createTelegram: async () => fakeTelegram({
         getProfile: async (user) => {
@@ -322,19 +304,20 @@ describe("firetg cli", () => {
 
   test("flood waits surface as RATE_LIMITED with a retry deadline", async () => {
     const harness = createHarness();
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(
       ["profiles", "view", "--username", "PaninaOk"],
       {
-        env,
+        store,
         io: harness.io,
         now: () => new Date("2026-07-01T00:00:00.000Z"),
         createTelegram: async () => fakeTelegram({
           getProfile: async () => {
-            throw new Error(
-              "A wait of 53047 seconds is required (caused by contacts.ResolveUsername)",
-            );
+            throw tl.RpcError.fromTl({
+              errorCode: 420,
+              errorMessage: "FLOOD_WAIT_53047",
+            });
           },
         }),
       },
@@ -352,18 +335,18 @@ describe("firetg cli", () => {
     });
   });
 
-  test("resolver rate limits surface as RATE_LIMITED with block details", async () => {
+  test("plain errors that mention flood waits are not misclassified", async () => {
     const harness = createHarness();
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(
       ["messages", "list", "--chat", "@PaninaOk"],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           listMessages: async () => {
-            throw new RateLimitedError("2026-07-01T14:44:07.000Z", 53047);
+            throw new Error("FLOOD_WAIT_53047");
           },
         }),
       },
@@ -372,13 +355,7 @@ describe("firetg cli", () => {
     expect(exitCode).toBe(2);
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
       ok: false,
-      error: {
-        code: "RATE_LIMITED",
-        message:
-          "Telegram username resolves are blocked until 2026-07-01T14:44:07.000Z",
-        blockedUntil: "2026-07-01T14:44:07.000Z",
-        remainingSeconds: 53047,
-      },
+      error: { code: "TELEGRAM_ERROR", message: "FLOOD_WAIT_53047" },
     });
   });
 
@@ -386,7 +363,7 @@ describe("firetg cli", () => {
     const harness = createHarness();
 
     const exitCode = await runCli(["profiles", "view"], {
-      env: {},
+      store: harness.store,
       io: harness.io,
     });
 
@@ -406,7 +383,7 @@ describe("firetg cli", () => {
     const exitCode = await runCli(
       ["profiles", "view", "--username", "firetg", "--id", "42"],
       {
-        env: {},
+        store: harness.store,
         io: harness.io,
       },
     );
@@ -424,12 +401,12 @@ describe("firetg cli", () => {
   test("channels view emits channel details by username as JSON", async () => {
     const harness = createHarness();
     const viewed: string[] = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(
       ["channels", "view", "--username", "firetg"],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           getChannel: async (channel) => {
@@ -444,6 +421,9 @@ describe("firetg cli", () => {
                 id: 7,
                 date: 1_800_000_003,
                 text: "Start here",
+                senderId: "42",
+                chatId: "100",
+                outgoing: false,
               },
             };
           },
@@ -463,6 +443,9 @@ describe("firetg cli", () => {
         id: 7,
         date: 1_800_000_003,
         text: "Start here",
+        senderId: "42",
+        chatId: "100",
+        outgoing: false,
       },
     });
     expect(harness.stderr.join("")).toBe("");
@@ -471,12 +454,12 @@ describe("firetg cli", () => {
   test("channels messages emits channel messages as JSON", async () => {
     const harness = createHarness();
     const calls: Array<{ chat: string; limit: number; search?: string }> = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(
       ["channels", "messages", "--username", "example_channel", "--limit", "2"],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           listMessages: async (options) => {
@@ -486,7 +469,9 @@ describe("firetg cli", () => {
                 id: 35,
                 date: 1_800_000_200,
                 text: "latest channel post",
+                senderId: "42",
                 chatId: "2139391239",
+                outgoing: false,
               },
             ];
           },
@@ -501,7 +486,9 @@ describe("firetg cli", () => {
         id: 35,
         date: 1_800_000_200,
         text: "latest channel post",
+        senderId: "42",
         chatId: "2139391239",
+        outgoing: false,
       },
     ]);
   });
@@ -509,12 +496,12 @@ describe("firetg cli", () => {
   test("channels pinned emits pinned channel messages as JSON", async () => {
     const harness = createHarness();
     const calls: Array<{ chat: string; limit: number }> = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(
       ["channels", "pinned", "--username", "example_channel", "--limit", "2"],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           listPinnedMessages: async (options) => {
@@ -524,7 +511,9 @@ describe("firetg cli", () => {
                 id: 35,
                 date: 1_800_000_200,
                 text: "latest pin",
+                senderId: "42",
                 chatId: "2139391239",
+                outgoing: false,
               },
             ];
           },
@@ -539,7 +528,9 @@ describe("firetg cli", () => {
         id: 35,
         date: 1_800_000_200,
         text: "latest pin",
+        senderId: "42",
         chatId: "2139391239",
+        outgoing: false,
       },
     ]);
   });
@@ -547,12 +538,12 @@ describe("firetg cli", () => {
   test("messages send accepts a username destination", async () => {
     const harness = createHarness();
     const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(
       ["messages", "send", "--username", "telegram", "--text", "hello"],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           sendMessage: async (to, message) => {
@@ -560,7 +551,7 @@ describe("firetg cli", () => {
             return {
               id: 7,
               date: 1_800_000_000,
-              text: typeof message === "string" ? message : message.text,
+              text: typeof message === "string" ? message : message.text ?? "",
             };
           },
         }),
@@ -579,12 +570,12 @@ describe("firetg cli", () => {
   test("messages send accepts a user id destination", async () => {
     const harness = createHarness();
     const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(
       ["messages", "send", "--id", "123456789", "--text", "hello"],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           sendMessage: async (to, message) => {
@@ -592,7 +583,7 @@ describe("firetg cli", () => {
             return {
               id: 8,
               date: 1_800_000_001,
-              text: typeof message === "string" ? message : message.text,
+              text: typeof message === "string" ? message : message.text ?? "",
             };
           },
         }),
@@ -611,7 +602,7 @@ describe("firetg cli", () => {
   test("messages send accepts ISO scheduled delivery", async () => {
     const harness = createHarness();
     const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
     const scheduleAt = new Date(Date.now() + 3_600_000).toISOString();
     const scheduledAt = Math.floor(Date.parse(scheduleAt) / 1000);
 
@@ -627,7 +618,7 @@ describe("firetg cli", () => {
         scheduleAt,
       ],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           sendMessage: async (to, message) => {
@@ -650,7 +641,7 @@ describe("firetg cli", () => {
   test("messages send accepts unix scheduled delivery", async () => {
     const harness = createHarness();
     const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
     const scheduledAt = Math.floor(Date.now() / 1000) + 3600;
 
     const exitCode = await runCli(
@@ -665,7 +656,7 @@ describe("firetg cli", () => {
         String(scheduledAt),
       ],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           sendMessage: async (to, message) => {
@@ -688,7 +679,7 @@ describe("firetg cli", () => {
   test("messages send accepts a file attachment with a caption", async () => {
     const harness = createHarness();
     const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
     const directory = await mkdtemp(join(tmpdir(), "firetg-attachment-"));
     const attachment = join(directory, "photo.jpg");
     await writeFile(attachment, "image");
@@ -705,7 +696,7 @@ describe("firetg cli", () => {
         "caption",
       ],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           sendMessage: async (to, message) => {
@@ -737,7 +728,7 @@ describe("firetg cli", () => {
   test("messages send accepts scheduled file attachments", async () => {
     const harness = createHarness();
     const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
     const directory = await mkdtemp(join(tmpdir(), "firetg-attachment-"));
     const attachment = join(directory, "photo.jpg");
     const scheduledAt = Math.floor(Date.now() / 1000) + 3600;
@@ -755,12 +746,12 @@ describe("firetg cli", () => {
         String(scheduledAt),
       ],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           sendMessage: async (to, message) => {
             sent.push({ to, message });
-            return { id: 13, date: scheduledAt };
+            return { id: 13, date: scheduledAt, text: "" };
           },
         }),
       },
@@ -783,7 +774,7 @@ describe("firetg cli", () => {
   test("messages send accepts the attachment alias and document mode", async () => {
     const harness = createHarness();
     const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
     const directory = await mkdtemp(join(tmpdir(), "firetg-attachment-"));
     const attachment = join(directory, "report.pdf");
     await writeFile(attachment, "pdf");
@@ -799,12 +790,12 @@ describe("firetg cli", () => {
         "--document",
       ],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           sendMessage: async (to, message) => {
             sent.push({ to, message });
-            return { id: 10, date: 1_800_000_003 };
+            return { id: 10, date: 1_800_000_003, text: "" };
           },
         }),
       },
@@ -838,7 +829,7 @@ describe("firetg cli", () => {
         "hello",
       ],
       {
-        env: {},
+        store: harness.store,
         io: harness.io,
       },
     );
@@ -868,7 +859,7 @@ describe("firetg cli", () => {
         "not-a-date",
       ],
       {
-        env: {},
+        store: harness.store,
         io: harness.io,
       },
     );
@@ -896,7 +887,7 @@ describe("firetg cli", () => {
         "1",
       ],
       {
-        env: {},
+        store: harness.store,
         io: harness.io,
       },
     );
@@ -912,7 +903,7 @@ describe("firetg cli", () => {
     const harness = createHarness();
 
     const exitCode = await runCli(["messages", "send"], {
-      env: {},
+      store: harness.store,
       io: harness.io,
     });
 
@@ -941,7 +932,7 @@ describe("firetg cli", () => {
         "b.jpg",
       ],
       {
-        env: {},
+        store: harness.store,
         io: harness.io,
       },
     );
@@ -963,7 +954,7 @@ describe("firetg cli", () => {
     const exitCode = await runCli(
       ["messages", "send", "--username", "telegram", "--file", missing],
       {
-        env: {},
+        store: harness.store,
         io: harness.io,
       },
     );
@@ -984,7 +975,7 @@ describe("firetg cli", () => {
     const exitCode = await runCli(
       ["messages", "send", "--to", "me", "--text", "hello"],
       {
-        env: {},
+        store: harness.store,
         io: harness.io,
       },
     );
@@ -1001,10 +992,10 @@ describe("firetg cli", () => {
 
   test("folders list emits Telegram folders as JSON", async () => {
     const harness = createHarness();
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(["folders", "list"], {
-      env,
+      store,
       io: harness.io,
       createTelegram: async () => fakeTelegram({
         listFolders: async () => [
@@ -1024,12 +1015,12 @@ describe("firetg cli", () => {
   test("dialogs list scopes dialogs to a folder and emits JSON", async () => {
     const harness = createHarness();
     const calls: Array<{ limit: number; folder?: number }> = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(
       ["dialogs", "list", "--folder", "2", "--limit", "3"],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           listDialogs: async (options) => {
@@ -1040,7 +1031,9 @@ describe("firetg cli", () => {
                 title: "Ops",
                 folderId: 2,
                 unreadCount: 4,
+                isUser: false,
                 isGroup: true,
+                isChannel: false,
               },
             ];
           },
@@ -1056,7 +1049,9 @@ describe("firetg cli", () => {
         title: "Ops",
         folderId: 2,
         unreadCount: 4,
+        isUser: false,
         isGroup: true,
+        isChannel: false,
       },
     ]);
   });
@@ -1064,12 +1059,12 @@ describe("firetg cli", () => {
   test("messages list emits chat messages as JSON", async () => {
     const harness = createHarness();
     const calls: Array<{ chat: string; limit: number; search?: string }> = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(
       ["messages", "list", "--chat", "me", "--limit", "2", "--search", "deploy"],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           listMessages: async (options) => {
@@ -1079,6 +1074,7 @@ describe("firetg cli", () => {
                 id: 11,
                 date: 1_800_000_100,
                 text: "deploy done",
+                senderId: "42",
                 chatId: "me",
                 outgoing: false,
               },
@@ -1095,6 +1091,7 @@ describe("firetg cli", () => {
         id: 11,
         date: 1_800_000_100,
         text: "deploy done",
+        senderId: "42",
         chatId: "me",
         outgoing: false,
       },
@@ -1108,7 +1105,7 @@ describe("firetg cli", () => {
       limit: number;
       search?: string;
     }> = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(
       [
@@ -1122,7 +1119,7 @@ describe("firetg cli", () => {
         "50",
       ],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           listMessages: async (options) => {
@@ -1134,6 +1131,7 @@ describe("firetg cli", () => {
                 text: "Ship it #deploy",
                 senderId: "7",
                 chatId: "100",
+                outgoing: false,
               },
             ];
           },
@@ -1156,6 +1154,7 @@ describe("firetg cli", () => {
         text: "Ship it #deploy",
         senderId: "7",
         chatId: "100",
+        outgoing: false,
       },
     ]);
   });
@@ -1168,7 +1167,7 @@ describe("firetg cli", () => {
       from: string[];
       limit: number;
     }> = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(
       [
@@ -1184,7 +1183,7 @@ describe("firetg cli", () => {
         "10",
       ],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           listReplies: async (options) => {
@@ -1197,6 +1196,7 @@ describe("firetg cli", () => {
                 senderId: "42",
                 chatId: "100",
                 replyToMessageId: 101,
+                outgoing: false,
               },
             ];
           },
@@ -1221,6 +1221,7 @@ describe("firetg cli", () => {
         senderId: "42",
         chatId: "100",
         replyToMessageId: 101,
+        outgoing: false,
       },
     ]);
   });
@@ -1229,7 +1230,7 @@ describe("firetg cli", () => {
     const harness = createHarness();
 
     const exitCode = await runCli(["messages", "search", "--chat", "me"], {
-      env: {},
+      store: harness.store,
       io: harness.io,
     });
 
@@ -1248,7 +1249,7 @@ describe("firetg cli", () => {
     const harness = createHarness();
 
     const exitCode = await runCli(["messages", "list"], {
-      env: {},
+      store: harness.store,
       io: harness.io,
     });
 
@@ -1265,12 +1266,12 @@ describe("firetg cli", () => {
   test("messages pinned emits pinned chat messages as JSON", async () => {
     const harness = createHarness();
     const calls: Array<{ chat: string; limit: number }> = [];
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(
       ["messages", "pinned", "--chat", "example_channel", "--limit", "2"],
       {
-        env,
+        store,
         io: harness.io,
         createTelegram: async () => fakeTelegram({
           listPinnedMessages: async (options) => {
@@ -1280,7 +1281,9 @@ describe("firetg cli", () => {
                 id: 35,
                 date: 1_800_000_200,
                 text: "latest pin",
+                senderId: "42",
                 chatId: "2139391239",
+                outgoing: false,
               },
             ];
           },
@@ -1295,24 +1298,23 @@ describe("firetg cli", () => {
         id: 35,
         date: 1_800_000_200,
         text: "latest pin",
+        senderId: "42",
         chatId: "2139391239",
+        outgoing: false,
       },
     ]);
   });
 
-  test("auth login uses QR by default and stores the session file", async () => {
+  test("auth login uses QR by default and reports SQLite storage", async () => {
     const stdout: string[] = [];
     const stderr: string[] = [];
     const prompts: string[] = [];
     const answers = ["123", "hash"];
     const configHome = await mkdtemp(join(tmpdir(), "firetg-test-"));
-    const configPath = join(configHome, "firetg", "config.json");
-    const sessionPath = join(configHome, "firetg", "session");
+    const store = new LocalStore(configHome);
 
     const exitCode = await runCli(["auth", "login"], {
-      env: {
-        XDG_CONFIG_HOME: configHome,
-      },
+      store,
       io: {
         stdout: (text) => stdout.push(text),
         stderr: (text) => stderr.push(text),
@@ -1325,12 +1327,12 @@ describe("firetg cli", () => {
         login: async (params) => {
           if (params.mode !== "qr") throw new Error("Expected QR auth");
 
-          await params.qrCode({
-            token: Buffer.from("token"),
-            expires: 1_800_000_000,
+          params.qrCode({
+            url: "tg://login?token=dG9rZW4",
+            expires: new Date(1_800_000_000_000),
           });
 
-          return { session: "qr-session" };
+          return { id: "42", firstName: "Fire" };
         },
       }),
     });
@@ -1339,16 +1341,14 @@ describe("firetg cli", () => {
     expect(prompts).toEqual(["API ID: ", "API hash: "]);
     expect(stderr.join("")).toContain("tg://login?token=dG9rZW4");
     expect(JSON.parse(stdout.join(""))).toEqual({
-      configPath,
-      sessionPath,
+      configPath: store.paths.config,
+      storagePath: store.paths.telegram,
     });
-    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({
+    expect(JSON.parse(await readFile(store.paths.config, "utf8"))).toEqual({
       apiId: 123,
       apiHash: "hash",
     });
-    expect((await stat(configPath)).mode & 0o777).toBe(0o600);
-    expect(await readFile(sessionPath, "utf8")).toBe("qr-session\n");
-    expect((await stat(sessionPath)).mode & 0o777).toBe(0o600);
+    expect((await stat(store.paths.config)).mode & 0o777).toBe(0o600);
   });
 
   test("auth login replaces the previous QR code when Telegram renews it", async () => {
@@ -1356,11 +1356,10 @@ describe("firetg cli", () => {
     const stderr: string[] = [];
     const answers = ["123", "hash"];
     const configHome = await mkdtemp(join(tmpdir(), "firetg-test-"));
+    const store = new LocalStore(configHome);
 
     const exitCode = await runCli(["auth", "login"], {
-      env: {
-        XDG_CONFIG_HOME: configHome,
-      },
+      store,
       io: {
         stdout: (text) => stdout.push(text),
         stderr: (text) => stderr.push(text),
@@ -1370,16 +1369,16 @@ describe("firetg cli", () => {
         login: async (params) => {
           if (params.mode !== "qr") throw new Error("Expected QR auth");
 
-          await params.qrCode({
-            token: Buffer.from("expired"),
-            expires: 1_800_000_000,
+          params.qrCode({
+            url: "tg://login?token=ZXhwaXJlZA",
+            expires: new Date(1_800_000_000_000),
           });
-          await params.qrCode({
-            token: Buffer.from("renewed"),
-            expires: 1_800_000_030,
+          params.qrCode({
+            url: "tg://login?token=cmVuZXdlZA",
+            expires: new Date(1_800_000_030_000),
           });
 
-          return { session: "qr-session" };
+          return { id: "42", firstName: "Fire" };
         },
       }),
     });
@@ -1397,13 +1396,11 @@ describe("firetg cli", () => {
     const prompts: string[] = [];
     const answers = ["123", "hash", "79886504271", "12345", "hunter2"];
     const configHome = await mkdtemp(join(tmpdir(), "firetg-test-"));
-    const configPath = join(configHome, "firetg", "config.json");
-    const sessionPath = join(configHome, "firetg", "session");
+    const store = new LocalStore(configHome);
+    let loginValues: unknown;
 
     const exitCode = await runCli(["auth", "login", "--phone"], {
-      env: {
-        XDG_CONFIG_HOME: configHome,
-      },
+      store,
       io: {
         stdout: (text) => stdout.push(text),
         stderr: (text) => stderr.push(text),
@@ -1417,10 +1414,9 @@ describe("firetg cli", () => {
           if (params.mode !== "phone") throw new Error("Expected phone auth");
 
           const phoneCode = await params.phoneCode(true);
-          const password = await params.password("hint");
-          return {
-            session: `session:${params.phoneNumber}:${phoneCode}:${password}`,
-          };
+          const password = await params.password();
+          loginValues = { phone: params.phoneNumber, phoneCode, password };
+          return { id: "42", firstName: "Fire" };
         },
       }),
     });
@@ -1431,44 +1427,49 @@ describe("firetg cli", () => {
       "API hash: ",
       "Phone: ",
       "Code from Telegram app: ",
-      "2FA password (hint): ",
+      "2FA password: ",
     ]);
-    expect(await readFile(sessionPath, "utf8")).toBe(
-      "session:+79886504271:12345:hunter2\n",
-    );
-    expect(JSON.parse(stdout.join(""))).toEqual({ configPath, sessionPath });
+    expect(loginValues).toEqual({
+      phone: "+79886504271",
+      phoneCode: "12345",
+      password: "hunter2",
+    });
+    expect(JSON.parse(stdout.join(""))).toEqual({
+      configPath: store.paths.config,
+      storagePath: store.paths.telegram,
+    });
     expect(stderr.join("")).toBe("");
   });
 
-  test("auth logout removes the stored session file", async () => {
+  test("auth logout removes the stored SQLite files", async () => {
     const harness = createHarness();
-    const { env, sessionPath } = await createStoredAuthEnv();
+    const { store, storagePath } = await createStoredAuthStore();
 
     const exitCode = await runCli(["auth", "logout"], {
-      env,
+      store,
       io: harness.io,
       createTelegram: async () => fakeTelegram(),
     });
 
     expect(exitCode).toBe(0);
     expect(JSON.parse(harness.stdout.join(""))).toEqual({
-      sessionPath,
+      storagePath,
     });
-    await expect(readFile(sessionPath, "utf8")).rejects.toThrow();
+    await expect(readFile(storagePath, "utf8")).rejects.toThrow();
     expect(harness.stderr.join("")).toBe("");
   });
 
   test("auth logout revokes the stored Telegram session", async () => {
     const harness = createHarness();
-    const { env, sessionPath } = await createStoredAuthEnv("stored-session");
-    const sessions: Array<string | undefined> = [];
+    const { store, storagePath } = await createStoredAuthStore();
+    const storagePaths: string[] = [];
     let logoutCalls = 0;
 
     const exitCode = await runCli(["auth", "logout"], {
-      env,
+      store,
       io: harness.io,
       createTelegram: async (config) => {
-        sessions.push(config.session);
+        storagePaths.push(config.storagePath);
         return fakeTelegram({
           logout: async () => {
             logoutCalls += 1;
@@ -1478,18 +1479,18 @@ describe("firetg cli", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(sessions).toEqual(["stored-session"]);
+    expect(storagePaths).toEqual([storagePath]);
     expect(logoutCalls).toBe(1);
-    await expect(readFile(sessionPath, "utf8")).rejects.toThrow();
+    await expect(readFile(storagePath, "utf8")).rejects.toThrow();
     expect(harness.stderr.join("")).toBe("");
   });
 
   test("Telegram errors become agent-readable JSON", async () => {
     const harness = createHarness();
-    const { env } = await createStoredAuthEnv();
+    const { store } = await createStoredAuthStore();
 
     const exitCode = await runCli(["profiles", "me"], {
-      env,
+      store,
       io: harness.io,
       createTelegram: async () => fakeTelegram({
         getMe: async () => {
