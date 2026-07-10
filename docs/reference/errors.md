@@ -4,13 +4,15 @@ description: Handle firetg error codes, process exit codes, Telegram flood waits
 
 # Errors and exit codes
 
-Failures are JSON on stdout and have a nonzero process exit code.
+Failures are written to stdout and have a nonzero process exit code. Usage
+failures are concise text with contextual help. Operational failures are JSON
+when structured fields affect recovery.
 
 ```ts
 type FireTgError = {
   ok: false;
   error: {
-    code: "CONFIG_ERROR" | "INPUT_ERROR" | "RATE_LIMITED" | "TELEGRAM_ERROR";
+    code: "CONFIG_ERROR" | "RATE_LIMITED" | "TELEGRAM_ERROR";
     message: string;
     blockedUntil?: string;
     remainingSeconds?: number;
@@ -26,20 +28,18 @@ type FireTgError = {
 | `1` | Input or local configuration failure | Fix arguments, configure credentials, or log in |
 | `2` | Telegram or rate-limit failure | Inspect the error code before retrying |
 
-Help commands also exit with `0`. Unknown commands and invalid positive integer flags exit with `1`.
+Help commands also exit with `0`. Unknown commands, unknown or duplicate
+flags, extra arguments, missing flag values, and invalid numeric ranges exit
+with `1`.
 
-## `INPUT_ERROR`
+## Usage errors
 
-Arguments are missing, contradictory, or invalid.
+Arguments are missing, contradictory, or invalid. These failures are plain
+text and include canonical usage instead of a JSON envelope.
 
-```json
-{
-  "ok": false,
-  "error": {
-    "code": "INPUT_ERROR",
-    "message": "channels view accepts either --username or --id, not both"
-  }
-}
+```text
+channels view accepts either --username or --id, not both.
+Usage: firetg channels view (--username <username> | --id <channel-id>)
 ```
 
 Do not retry the same invocation. Fix the arguments first.
@@ -69,14 +69,17 @@ Telegram returned a flood wait. firetg converts it to an absolute ISO timestamp 
   "ok": false,
   "error": {
     "code": "RATE_LIMITED",
-    "message": "Telegram flood wait: retry after 2026-07-11T12:01:00.000Z",
+    "message": "Telegram rate-limited this action after too many similar requests. Retry at 2026-07-11T12:01:00.000Z (in 1m); avoid retrying it earlier or in parallel",
     "blockedUntil": "2026-07-11T12:01:00.000Z",
     "remainingSeconds": 60
   }
 }
 ```
 
-Wait until `blockedUntil`. Do not loop rapidly, and do not split the same work across concurrent calls to evade Telegram limits.
+Wait until `blockedUntil`. Do not retry the same action earlier or split it
+across concurrent calls. mtcute automatically handles short waits internally;
+surfaced waits require the caller to pause. Chat slow mode is reported
+separately because it affects that chat rather than every Telegram action.
 
 ## `TELEGRAM_ERROR`
 
@@ -102,14 +105,18 @@ const child = Bun.spawn(
   { stdout: "pipe", stderr: "pipe" },
 );
 
-const result = await new Response(child.stdout).json();
+const stdout = await new Response(child.stdout).text();
 const exitCode = await child.exited;
 
 if (exitCode === 0) {
+  const result = JSON.parse(stdout);
   console.log(result.username);
-} else if (result.error.code === "RATE_LIMITED") {
-  console.error(`Retry after ${result.error.blockedUntil}`);
 } else {
-  console.error(result.error.message);
+  const result = stdout.startsWith("{") ? JSON.parse(stdout) : undefined;
+  if (result?.error.code === "RATE_LIMITED") {
+    console.error(`Retry after ${result.error.blockedUntil}`);
+  } else {
+    console.error(result?.error.message ?? stdout.trim());
+  }
 }
 ```

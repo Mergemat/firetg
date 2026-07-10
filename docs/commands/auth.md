@@ -29,10 +29,7 @@ firetg auth login --phone
 On success:
 
 ```json
-{
-  "configPath": "/Users/you/.config/firetg/config.json",
-  "storagePath": "/Users/you/.config/firetg/telegram.sqlite"
-}
+{"loggedIn":true}
 ```
 
 Exit code is `1` for invalid input or local configuration errors and `2` for Telegram failures.
@@ -52,9 +49,7 @@ firetg auth logout
 On success:
 
 ```json
-{
-  "storagePath": "/Users/you/.config/firetg/telegram.sqlite"
-}
+{"loggedOut":true}
 ```
 
 The API credentials in `config.json` are not removed.

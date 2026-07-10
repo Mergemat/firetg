@@ -4,7 +4,9 @@ description: Integrate firetg into an agent harness with safe permissions, JSON 
 
 # Use with agents
 
-firetg is designed to be a narrow Telegram tool in a larger agent harness. Commands are scoped, stdout is machine-readable, and failures use stable codes.
+firetg is designed to be a narrow Telegram tool in a larger agent harness.
+Commands are scoped, successful results are machine-readable, and failures
+include the context needed for the next action.
 
 ## Tool contract
 
@@ -12,7 +14,8 @@ Treat each invocation as this contract:
 
 - Input arrives through command arguments.
 - Success writes the result itself as one JSON value to stdout.
-- Failure writes a structured error object to stdout.
+- Usage failure writes concise text plus relevant help to stdout.
+- Operational failure writes a structured error object to stdout.
 - Interactive prompts and diagnostics use stderr.
 - Exit code `0` means success, `1` means local input or configuration failure, and `2` means Telegram or rate-limit failure.
 
@@ -22,11 +25,15 @@ const process = Bun.spawn(
   { stdout: "pipe", stderr: "pipe" },
 );
 
-const body = await new Response(process.stdout).json();
+const stdout = await new Response(process.stdout).text();
 const exitCode = await process.exited;
 
-if (exitCode !== 0) {
-  throw new Error(`${body.error.code}: ${body.error.message}`);
+if (exitCode === 0) {
+  const body = JSON.parse(stdout);
+  // use body
+} else {
+  const body = stdout.startsWith("{") ? JSON.parse(stdout) : undefined;
+  throw new Error(body?.error.message ?? stdout.trim());
 }
 ```
 
@@ -73,7 +80,7 @@ Do not retry every nonzero exit code.
 
 | Error code | Agent action |
 | --- | --- |
-| `INPUT_ERROR` | Fix arguments. Do not retry unchanged. |
+| Plain usage text | Follow the included usage/help. Do not retry unchanged. |
 | `CONFIG_ERROR` | Ask the user to configure or log in. |
 | `RATE_LIMITED` | Wait until `blockedUntil`, then retry once. |
 | `TELEGRAM_ERROR` | Report the Telegram failure or retry only when the operation is safe. |
@@ -85,7 +92,7 @@ For a flood wait, use the structured timing fields:
   "ok": false,
   "error": {
     "code": "RATE_LIMITED",
-    "message": "Telegram flood wait: retry after 2026-07-11T12:01:00.000Z",
+    "message": "Telegram rate-limited this action after too many similar requests. Retry at 2026-07-11T12:01:00.000Z (in 1m); avoid retrying it earlier or in parallel",
     "blockedUntil": "2026-07-11T12:01:00.000Z",
     "remainingSeconds": 60
   }
@@ -100,6 +107,10 @@ Always pass `--limit` from agent code. Defaults are safe for interactive work, b
 firetg dialogs list --limit 20
 firetg messages search --chat launch-team --hashtag deploy --limit 50
 ```
+
+Limits must be between 1 and 100. Message text is a 1,000-character preview
+by default and includes `textTruncated: true` when shortened. Use
+`--full-text` only when the task requires complete bodies.
 
 ## Keep secrets out of prompts
 

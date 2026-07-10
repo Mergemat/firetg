@@ -55,6 +55,7 @@ export type MessageSummary = {
   id: number;
   date: number;
   text: string;
+  textTruncated?: boolean;
   media?: MessageMediaSummary;
   senderId: string;
   chatId: string;
