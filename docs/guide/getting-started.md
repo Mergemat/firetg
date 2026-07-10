@@ -94,7 +94,7 @@ Because stdout contains JSON only, normal shell pipelines work without cleanup:
 firetg dialogs list --limit 50 | jq '.[] | select(.unreadCount > 0)'
 ```
 
-Keep stderr visible during interactive login. Prompts and QR output are intentionally written there.
+Keep stderr visible during interactive login. Prompts and temporary QR output are intentionally written there; secret answers are not echoed.
 
 ## Where next
 

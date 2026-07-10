@@ -40,6 +40,7 @@ export function writeTelegramError(
   context: CliContext,
   error: unknown,
   operation: "read" | "send" | "auth" = "read",
+  details: Record<string, unknown> = {},
 ): number {
   const wait = telegramWait(error);
   if (wait) {
@@ -51,7 +52,7 @@ export function writeTelegramError(
       context,
       "RATE_LIMITED",
       waitMessage(wait.kind, blockedUntil, wait.seconds, operation),
-      { blockedUntil, remainingSeconds: wait.seconds },
+      { blockedUntil, remainingSeconds: wait.seconds, ...details },
     );
     return 2;
   }
@@ -63,6 +64,7 @@ export function writeTelegramError(
     configFailure
       ? errorMessage(error)
       : telegramErrorMessage(error, operation),
+    details,
   );
   return configFailure ? 1 : 2;
 }

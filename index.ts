@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { createInterface } from "node:readline/promises";
+import { Writable } from "node:stream";
 import { runCli } from "./src/cli";
 import { LocalStore } from "./src/localStore";
 
@@ -18,10 +19,35 @@ function writeStream(
   );
 }
 
+let hideInput = false;
+const readlineOutput = new Writable({
+  write(chunk, _encoding, callback) {
+    if (!hideInput) writeStream(process.stderr, String(chunk));
+    callback();
+  },
+});
 const rl = createInterface({
   input: process.stdin,
-  output: process.stderr,
+  output: readlineOutput,
+  terminal: Boolean(process.stdin.isTTY),
 });
+
+async function readSecret(prompt: string): Promise<string> {
+  if (!process.stdin.isTTY) {
+    throw new Error(
+      "Authentication secrets require a trusted interactive terminal",
+    );
+  }
+
+  const answer = rl.question(prompt);
+  hideInput = true;
+  try {
+    return await answer;
+  } finally {
+    hideInput = false;
+    writeStream(process.stderr, "\n");
+  }
+}
 
 let exitCode = 1;
 
@@ -32,6 +58,7 @@ try {
       stdout: (text) => writeStream(process.stdout, text),
       stderr: (text) => writeStream(process.stderr, text),
       question: (prompt) => rl.question(prompt),
+      secret: readSecret,
     },
   });
 } catch (error) {

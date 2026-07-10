@@ -49,8 +49,10 @@ firetg auth logout
 On success:
 
 ```json
-{"loggedOut":true}
+{"loggedOut":true,"localRemoved":true,"remoteRevoked":true}
 ```
+
+If Telegram cannot revoke the remote session, the command still removes local state and returns an error containing `"localRemoved":true` and `"remoteRevoked":false`.
 
 The API credentials in `config.json` are not removed.
 
