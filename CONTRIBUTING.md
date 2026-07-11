@@ -15,7 +15,7 @@ Before opening a pull request, run:
 ```bash
 bun run typecheck
 bun test
-bun run docs:build
+bun run --cwd docs build
 bun pm pack --dry-run
 ```
 
