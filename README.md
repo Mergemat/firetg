@@ -61,7 +61,7 @@ firetg messages send --username telegram --text "hello"
 firetg messages send --id 123456789 --text "hello"
 firetg messages send --username telegram --file ./photo.jpg --text "caption"
 firetg messages send --username telegram --file ./report.pdf --document
-firetg messages send --username telegram --text "hello later" --schedule-at 2026-07-05T15:00
+firetg messages send --username telegram --text "hello later" --schedule-at 2030-07-05T15:00
 firetg messages list --chat me --limit 20
 firetg messages list --chat me --search deploy --limit 10
 firetg messages search --chat launch-team --hashtag "#deploy" --limit 100
@@ -102,7 +102,13 @@ Success output is the command result itself:
 Error:
 
 ```json
-{"ok":false,"error":{"code":"CONFIG_ERROR","message":"Missing config file at /path/to/config.json"}}
+{
+  "ok": false,
+  "error": {
+    "code": "CONFIG_ERROR",
+    "message": "Missing config file at /path/to/config.json"
+  }
+}
 ```
 
 Usage error:
@@ -117,3 +123,13 @@ Available dialogs commands:
 Message-reading commands return at most 100 items. Text is limited to a
 1,000-character preview by default and includes `"textTruncated":true` when
 shortened. Pass `--full-text` only when complete bodies are needed.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull request
+guidelines. Report security vulnerabilities according to
+[SECURITY.md](SECURITY.md).
+
+## License
+
+Released under the [MIT License](LICENSE).

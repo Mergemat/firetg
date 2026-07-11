@@ -82,7 +82,7 @@ export const sendCommand: CommandSpec = {
       },
       {
         command:
-          'firetg messages send --username telegram --text "hello later" --schedule-at 2026-07-05T15:00',
+          'firetg messages send --username telegram --text "hello later" --schedule-at 2030-07-05T15:00',
         summary: "Schedule a message for later delivery",
       },
     ],
