@@ -27,6 +27,10 @@ export async function createMtcuteClient(
     logLevel: 0,
   });
 
+  // Peer resolution can consult SQLite before making its first RPC (notably
+  // for numeric IDs), so load the repositories before exposing the client.
+  await client.prepare();
+
   if (config.legacySession) {
     try {
       await client.importSession(convertFromGramjsSession(config.legacySession));

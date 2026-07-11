@@ -1720,4 +1720,29 @@ describe("firetg cli", () => {
       },
     });
   });
+
+  test("unknown numeric peers return actionable cache guidance", async () => {
+    const harness = createHarness();
+    const { store } = await createStoredAuthStore();
+
+    const exitCode = await runCli(["profiles", "get", "116040562"], {
+      store,
+      io: harness.io,
+      createTelegram: async () => fakeTelegram({
+        getProfile: async () => {
+          throw new Error("Peer 116040562 is not found in local cache");
+        },
+      }),
+    });
+
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: false,
+      error: {
+        code: "TELEGRAM_ERROR",
+        message:
+          "Telegram cannot resolve this peer in the current session. Use a username or run firetg dialogs list first",
+      },
+    });
+  });
 });

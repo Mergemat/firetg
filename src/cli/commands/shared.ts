@@ -117,6 +117,9 @@ function telegramErrorMessage(
 
   const raw = errorMessage(error);
   if (guidance[raw]) return guidance[raw];
+  if (/^Peer .+ is not found in local cache$/.test(raw)) {
+    return guidance.PEER_ID_INVALID!;
+  }
   if (operation === "send") {
     return `${raw}. Delivery status may be unknown; check the chat before retrying to avoid a duplicate`;
   }
