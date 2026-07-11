@@ -7,7 +7,11 @@ export default defineConfig({
   titleTemplate: ":title | firetg",
   description: "Agent-ready Telegram MTProto CLI powered by mtcute.",
   cleanUrls: true,
+  srcExclude: ["agents/**"],
   lastUpdated: true,
+  sitemap: {
+    hostname: "https://firetg-docs.vercel.app",
+  },
   head: [
     ["meta", { name: "theme-color", content: "#11100f" }],
     ["meta", { property: "og:type", content: "website" }],

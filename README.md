@@ -18,6 +18,17 @@ bun install -g firetg
 firetg --help
 ```
 
+## Agent skill
+
+Install the firetg skill through skills.sh:
+
+```bash
+bunx skills add Mergemat/firetg --skill firetg
+```
+
+The skill teaches agents to bound reads, keep authentication secrets in the
+terminal, and confirm recipients and content before sending messages.
+
 ## Login
 
 Create a Telegram app at https://my.telegram.org/apps, then run:

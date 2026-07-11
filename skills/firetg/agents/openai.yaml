@@ -1,0 +1,4 @@
+interface:
+  display_name: "firetg"
+  short_description: "Operate Telegram safely from an agent"
+  default_prompt: "Use $firetg to inspect or operate my Telegram account safely."
