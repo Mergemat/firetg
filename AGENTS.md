@@ -6,12 +6,12 @@ You can use subagents
 
 ### Issue tracker
 
-Issues and PRDs are tracked in GitHub Issues via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues and PRDs are tracked in GitHub Issues via the `gh` CLI; external PRs are not a triage surface. See `.agents/issue-tracker.md`.
 
 ### Triage labels
 
-Uses the default five-label triage vocabulary. See `docs/agents/triage-labels.md`.
+Uses the default five-label triage vocabulary. See `.agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context layout: root `CONTEXT.md` plus `docs/adr/`. See `docs/agents/domain.md`.
+Single-context layout: root `CONTEXT.md` plus `.agents/adr/`. See `.agents/domain.md`.
