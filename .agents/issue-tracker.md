@@ -11,7 +11,13 @@ Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all op
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
 
-Infer the repo from `git remote -v` -- `gh` does this automatically when run inside a clone.
+Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
+
+## Pull requests as a triage surface
+
+**PRs as a request surface: no.**
+
+GitHub shares one number space across issues and PRs, so resolve an ambiguous `#42` with `gh pr view 42` and fall back to `gh issue view 42`.
 
 ## When a skill says "publish to the issue tracker"
 
@@ -20,3 +26,13 @@ Create a GitHub issue.
 ## When a skill says "fetch the relevant ticket"
 
 Run `gh issue view <number> --comments`.
+
+## Wayfinding operations
+
+Used by `/wayfinder`. The map is one issue with child issues as tickets.
+
+- Label maps `wayfinder:map`.
+- Link child tickets through GitHub sub-issues, falling back to a task list and `Part of #<map>`.
+- Use native issue dependencies for blocking, falling back to `Blocked by: #<n>`.
+- Claim work with `gh issue edit <n> --add-assignee @me`.
+- Resolve by commenting, closing the child, and adding its context pointer to the map.
