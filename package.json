@@ -32,9 +32,6 @@
   "publishConfig": {
     "access": "public"
   },
-  "workspaces": [
-    "docs"
-  ],
   "engines": {
     "bun": ">=1.3.12"
   },
@@ -52,8 +49,5 @@
     "@mtcute/bun": "^0.30.3",
     "@mtcute/convert": "^0.30.3",
     "qrcode-terminal": "^0.12.0"
-  },
-  "overrides": {
-    "vite": "6.4.3"
   }
 }

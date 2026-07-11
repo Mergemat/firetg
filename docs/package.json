@@ -12,5 +12,8 @@
     "vite": "6.4.3",
     "vitepress": "1.6.4",
     "vitepress-plugin-llms": "1.10.0"
+  },
+  "overrides": {
+    "vite": "6.4.3"
   }
 }

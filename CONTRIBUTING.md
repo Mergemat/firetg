@@ -8,6 +8,7 @@ Install dependencies with Bun:
 
 ```bash
 bun install --frozen-lockfile
+bun install --cwd docs --frozen-lockfile
 ```
 
 Before opening a pull request, run:
