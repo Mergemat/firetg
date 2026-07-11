@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +17,7 @@ import { loadTelegramConfig } from "../src/config";
 import { LocalStore } from "../src/localStore";
 import { loginTelegramAccount } from "../src/telegram/auth";
 import { getChannelDetails } from "../src/telegram/channels";
+import { createMtcuteClient } from "../src/telegram/client";
 import { listDialogSummaries } from "../src/telegram/dialogs";
 import { floodWaitSeconds } from "../src/telegram/errors";
 import { listTelegramFolders } from "../src/telegram/folders";
@@ -81,6 +83,28 @@ function clientFixture(
 }
 
 describe("local Telegram configuration", () => {
+  test("prepares peer storage before exposing profile lookups", async () => {
+    const home = await mkdtemp(join(tmpdir(), "firetg-client-"));
+    const storagePath = join(home, "telegram.sqlite");
+    const telegram = await createMtcuteClient({
+      apiId: 123,
+      apiHash: "hash",
+      storagePath,
+    });
+    await telegram.disconnect();
+
+    const database = new Database(storagePath, { readonly: true });
+    try {
+      expect(
+        database
+          .query("select name from sqlite_master where type = 'table' and name = 'peers'")
+          .get(),
+      ).toEqual({ name: "peers" });
+    } finally {
+      database.close();
+    }
+  });
+
   test("requires credentials and a Telegram login", async () => {
     const home = await mkdtemp(join(tmpdir(), "firetg-config-"));
     const store = new LocalStore(home);
