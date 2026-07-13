@@ -7,7 +7,7 @@ import {
   type MessageMedia,
   type TelegramClient,
 } from "@mtcute/bun";
-import { extname } from "node:path";
+import { basename, extname } from "node:path";
 import type {
   MessageMediaSummary,
   MessageReadReceipt,
@@ -36,7 +36,9 @@ export async function sendTelegramMessage(
     ? await client.sendMedia(
         peer,
         input.forceDocument
-          ? InputMedia.document(localFile(input.attachment))
+          ? InputMedia.document(localFile(input.attachment), {
+              fileName: basename(input.attachment),
+            })
           : mediaForPath(input.attachment),
         { caption: input.text, schedule },
       )
@@ -48,17 +50,18 @@ export async function sendTelegramMessage(
 function mediaForPath(path: string) {
   const extension = extname(path).toLowerCase();
   const file = localFile(path);
+  const fileName = basename(path);
   if ([".jpg", ".jpeg", ".png", ".webp"].includes(extension)) {
-    return InputMedia.photo(file);
+    return InputMedia.photo(file, { fileName });
   }
   if ([".mp4", ".mov", ".m4v", ".webm"].includes(extension)) {
-    return InputMedia.video(file);
+    return InputMedia.video(file, { fileName });
   }
-  if (extension === ".gif") return InputMedia.animation(file);
+  if (extension === ".gif") return InputMedia.animation(file, { fileName });
   if ([".mp3", ".m4a", ".aac", ".flac", ".ogg", ".wav"].includes(extension)) {
-    return InputMedia.audio(file);
+    return InputMedia.audio(file, { fileName });
   }
-  return InputMedia.document(file);
+  return InputMedia.document(file, { fileName });
 }
 
 function localFile(path: string): string {

@@ -249,10 +249,12 @@ describe("mtcute messages", () => {
   });
 
   test("wraps attachments as auto media or forced documents", async () => {
-    const media: Array<{ type: string; file: unknown }> = [];
+    const media: Array<{ type: string; file: unknown; fileName?: string }> = [];
     const client = clientFixture({
       sendMedia: async (_peer, input) => {
-        media.push(input as { type: string; file: unknown });
+        media.push(
+          input as { type: string; file: unknown; fileName?: string },
+        );
         return makeMessage(11, { text: "caption", outgoing: true });
       },
     });
@@ -266,9 +268,15 @@ describe("mtcute messages", () => {
       forceDocument: true,
     });
 
-    expect(media.map(({ type, file }) => ({ type, file }))).toEqual([
-      { type: "photo", file: "file:/tmp/photo.jpg" },
-      { type: "document", file: "file:/tmp/report.pdf" },
+    expect(
+      media.map(({ type, file, fileName }) => ({ type, file, fileName })),
+    ).toEqual([
+      { type: "photo", file: "file:/tmp/photo.jpg", fileName: "photo.jpg" },
+      {
+        type: "document",
+        file: "file:/tmp/report.pdf",
+        fileName: "report.pdf",
+      },
     ]);
   });
 
