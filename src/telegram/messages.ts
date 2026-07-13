@@ -36,7 +36,7 @@ export async function sendTelegramMessage(
     ? await client.sendMedia(
         peer,
         input.forceDocument
-          ? InputMedia.document(input.attachment)
+          ? InputMedia.document(localFile(input.attachment))
           : mediaForPath(input.attachment),
         { caption: input.text, schedule },
       )
@@ -47,17 +47,22 @@ export async function sendTelegramMessage(
 
 function mediaForPath(path: string) {
   const extension = extname(path).toLowerCase();
+  const file = localFile(path);
   if ([".jpg", ".jpeg", ".png", ".webp"].includes(extension)) {
-    return InputMedia.photo(path);
+    return InputMedia.photo(file);
   }
   if ([".mp4", ".mov", ".m4v", ".webm"].includes(extension)) {
-    return InputMedia.video(path);
+    return InputMedia.video(file);
   }
-  if (extension === ".gif") return InputMedia.animation(path);
+  if (extension === ".gif") return InputMedia.animation(file);
   if ([".mp3", ".m4a", ".aac", ".flac", ".ogg", ".wav"].includes(extension)) {
-    return InputMedia.audio(path);
+    return InputMedia.audio(file);
   }
-  return InputMedia.document(path);
+  return InputMedia.document(file);
+}
+
+function localFile(path: string): string {
+  return `file:${path}`;
 }
 
 export async function listTelegramMessages(
