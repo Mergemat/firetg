@@ -267,8 +267,8 @@ describe("mtcute messages", () => {
     });
 
     expect(media.map(({ type, file }) => ({ type, file }))).toEqual([
-      { type: "photo", file: "/tmp/photo.jpg" },
-      { type: "document", file: "/tmp/report.pdf" },
+      { type: "photo", file: "file:/tmp/photo.jpg" },
+      { type: "document", file: "file:/tmp/report.pdf" },
     ]);
   });
 
