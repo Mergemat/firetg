@@ -1,14 +1,11 @@
-import { commandModules } from "./commands";
+import { commandModules, topLevelCommands } from "./commands";
 import type { CommandModule, CommandOption, CommandSpec } from "./commands";
-
-const globalOptions: CommandOption[] = [
-  {
-    name: "--help",
-    summary: "Show help for a command or module",
-  },
-];
+import { globalOptions } from "./options";
 
 export function renderHelp(): string {
+  const commands = renderRows(
+    topLevelCommands.map((command) => [command.id, command.help.summary]),
+  );
   const modules = renderRows(
     commandModules.map((module) => [module.scope, module.summary]),
   );
@@ -16,13 +13,19 @@ export function renderHelp(): string {
   return `firetg - agent-ready Telegram MTProto CLI
 
 USAGE
+  firetg <command> [flags]
   firetg <module> <command> [flags]
+
+COMMANDS
+${commands}
 
 COMMAND GROUPS
 ${modules}
 
 GETTING STARTED
   firetg auth login
+  firetg status --json
+  firetg doctor --json --no-input --timeout 15
   firetg profiles me
   firetg channels messages --username telegram --limit 20
   firetg channels pinned --username telegram --limit 20
@@ -30,12 +33,12 @@ GETTING STARTED
 OUTPUT
   Successful results and operational errors use JSON on stdout.
   Usage errors use concise text with relevant help.
-  Prompts, QR login, and diagnostics are written to stderr.
+  Prompts, QR login, and output-file confirmations use stderr.
 
 FLAGS
 ${renderOptions(globalOptions)}
 
-Use "firetg <module>" for group help and "firetg <module> <command> --help" for command help.
+Use "firetg <command> --help" or "firetg <module> <command> --help" for command help.
 `;
 }
 
@@ -96,7 +99,7 @@ export function renderCommandHelp(command: CommandSpec): string {
     renderExampleSection(command.help.examples),
   ].filter((section) => section.length > 0);
 
-  return [
+  return `${[
     `firetg ${commandPath(command)} - ${command.help.summary}`,
     "",
     command.help.description ?? command.help.summary,
@@ -104,8 +107,7 @@ export function renderCommandHelp(command: CommandSpec): string {
     "USAGE",
     `  firetg ${command.usage}`,
     ...sections,
-  ]
-    .join("\n");
+  ].join("\n")}\n`;
 }
 
 function renderOptionSection(options: CommandOption[]): string {
@@ -187,7 +189,8 @@ function optionDescription(option: CommandOption): string {
 }
 
 function commandName(command: CommandSpec): string {
-  return command.id.slice(command.id.indexOf(".") + 1);
+  const separator = command.id.indexOf(".");
+  return separator === -1 ? command.id : command.id.slice(separator + 1);
 }
 
 function commandPath(command: CommandSpec): string {

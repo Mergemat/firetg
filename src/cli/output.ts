@@ -3,8 +3,11 @@ import type { CommandSpec } from "./commands";
 
 export type ErrorCode =
   | "CONFIG_ERROR"
+  | "INTERACTIVE_REQUIRED"
+  | "OUTPUT_ERROR"
   | "RATE_LIMITED"
-  | "TELEGRAM_ERROR";
+  | "TELEGRAM_ERROR"
+  | "TIMEOUT";
 
 export function writeSuccess(
   context: CliContext,

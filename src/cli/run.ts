@@ -7,7 +7,9 @@ import {
   renderModuleHelp,
   renderUnknownCommandHelp,
 } from "./help";
+import { globalOptions } from "./options";
 import { writeInputError } from "./output";
+import { executeCommand } from "./runtime";
 import type { CliContext } from "./types";
 
 export async function runCli(
@@ -16,7 +18,7 @@ export async function runCli(
 ): Promise<number> {
   const parsed = parseArgs(args);
 
-  if (args.length === 0 || parsed.command === "--help") {
+  if (args.length === 0 || (parsed.flags.has("help") && !parsed.command)) {
     context.io.stdout(renderHelp());
     return 0;
   }
@@ -53,7 +55,7 @@ export async function runCli(
     return 1;
   }
 
-  return command.run({ parsed, context });
+  return executeCommand(command, parsed, context);
 }
 
 function validateCommandInput(
@@ -61,7 +63,10 @@ function validateCommandInput(
   parsed: ReturnType<typeof parseArgs>,
 ): string | undefined {
   const options = new Map(
-    (command.help.options ?? []).map((option) => [option.name.slice(2), option]),
+    [...(command.help.options ?? []), ...globalOptions].map((option) => [
+      option.name.slice(2),
+      option,
+    ]),
   );
 
   for (const [flag, count] of parsed.flagCounts) {
@@ -87,35 +92,52 @@ function commandPositionals(
   parsed: ReturnType<typeof parseArgs>,
 ): string[] {
   const [scope, action] = command.id.split(".");
-  const routeLength = parsed.command === scope && parsed.subcommand === action ? 2 : 1;
-  const positionals: string[] = [];
-
-  for (let index = routeLength; index < parsed.raw.length; index += 1) {
-    const arg = parsed.raw[index];
-    if (!arg) continue;
-    if (arg.startsWith("--")) {
-      const value = parsed.raw[index + 1];
-      if (value && !value.startsWith("--")) index += 1;
-      continue;
-    }
-    positionals.push(arg);
-  }
-
-  return positionals;
+  const routeLength =
+    action !== undefined &&
+    parsed.command === scope &&
+    parsed.subcommand === action
+      ? 2
+      : 1;
+  return parsed.words.slice(routeLength);
 }
 
 function validateOptionValue(
   option: CommandOption,
   value: string,
 ): string | undefined {
-  if (option.value && !value) return `Flag ${option.name} requires ${option.value}`;
+  if (option.value && !value) {
+    return `Flag ${option.name} requires ${option.value}`;
+  }
   if (!option.value && value) return `Flag ${option.name} does not take a value`;
-  if (!option.integer || !value) return undefined;
+  if (option.integer && value) {
+    const parsed = Number(value);
+    const { min, max } = option.integer;
+    if (
+      !Number.isSafeInteger(parsed) ||
+      parsed < min ||
+      (max !== undefined && parsed > max)
+    ) {
+      const range = max === undefined ? `${min} or greater` : `${min}-${max}`;
+      return `Invalid ${option.name} value ${JSON.stringify(value)}; expected an integer in ${range}`;
+    }
+  }
 
+  return validateNumberOption(option, value);
+}
+
+function validateNumberOption(
+  option: CommandOption,
+  value: string,
+): string | undefined {
+  if (!option.number || !value) return undefined;
   const parsed = Number(value);
-  const { min, max } = option.integer;
-  if (!Number.isSafeInteger(parsed) || parsed < min || (max !== undefined && parsed > max)) {
+  const { min, max } = option.number;
+  if (
+    !Number.isFinite(parsed) ||
+    parsed < min ||
+    (max !== undefined && parsed > max)
+  ) {
     const range = max === undefined ? `${min} or greater` : `${min}-${max}`;
-    return `Invalid ${option.name} value ${JSON.stringify(value)}; expected an integer in ${range}`;
+    return `Invalid ${option.name} value ${JSON.stringify(value)}; expected a number in ${range}`;
   }
 }

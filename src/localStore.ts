@@ -99,15 +99,11 @@ export class LocalStore {
   }
 
   async hasTelegramStorage(): Promise<boolean> {
-    try {
-      return (await stat(this.paths.telegram)).isFile();
-    } catch (error) {
-      if (isMissingFile(error)) return false;
-      throw new ConfigError(
-        `Could not inspect Telegram storage at ${this.paths.telegram}: ${errorMessage(error)}`,
-        this.paths.telegram,
-      );
-    }
+    return this.hasFile(this.paths.telegram, "Telegram storage");
+  }
+
+  async hasLegacySession(): Promise<boolean> {
+    return this.hasFile(this.paths.legacySession, "legacy Telegram session");
   }
 
   async readLegacySession(): Promise<string | undefined> {
@@ -146,6 +142,18 @@ export class LocalStore {
   private async ensureDirectory(): Promise<void> {
     await mkdir(this.paths.directory, { recursive: true, mode: 0o700 });
     await chmod(this.paths.directory, 0o700);
+  }
+
+  private async hasFile(path: string, label: string): Promise<boolean> {
+    try {
+      return (await stat(path)).isFile();
+    } catch (error) {
+      if (isMissingFile(error)) return false;
+      throw new ConfigError(
+        `Could not inspect ${label} at ${path}: ${errorMessage(error)}`,
+        path,
+      );
+    }
   }
 }
 

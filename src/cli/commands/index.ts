@@ -5,6 +5,7 @@ import {
   channelViewCommand,
 } from "./channels";
 import { dialogsListCommand } from "./dialogs";
+import { doctorCommand, statusCommand } from "./diagnostics";
 import { foldersListCommand } from "./folders";
 import { meCommand, profileViewCommand } from "./me";
 import {
@@ -64,9 +65,12 @@ export const commandModules: CommandModule[] = [
   },
 ];
 
-export const commandSpecs: CommandSpec[] = commandModules.flatMap(
-  (module) => module.commands,
-);
+export const topLevelCommands: CommandSpec[] = [statusCommand, doctorCommand];
+
+export const commandSpecs: CommandSpec[] = [
+  ...topLevelCommands,
+  ...commandModules.flatMap((module) => module.commands),
+];
 
 export type {
   CommandModule,

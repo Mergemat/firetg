@@ -16,6 +16,10 @@ export type CommandOption = {
     min: number;
     max?: number;
   };
+  number?: {
+    min: number;
+    max?: number;
+  };
   hidden?: boolean;
 };
 

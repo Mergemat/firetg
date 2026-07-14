@@ -68,6 +68,7 @@ export default defineConfig({
           text: "Command reference",
           items: [
             { text: "Overview", link: "/commands/" },
+            { text: "status and doctor", link: "/commands/diagnostics" },
             { text: "auth", link: "/commands/auth" },
             { text: "profiles", link: "/commands/profiles" },
             { text: "channels", link: "/commands/channels" },

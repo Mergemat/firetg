@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { commandModules, commandSpecs } from "../src/cli/commands";
+import {
+  commandModules,
+  commandSpecs,
+  topLevelCommands,
+} from "../src/cli/commands";
 
 describe("cli architecture", () => {
   test("commands are declared through scoped modules", () => {
@@ -52,6 +56,8 @@ describe("cli architecture", () => {
     const ids = commandSpecs.map((command) => command.id);
 
     expect(ids).toEqual([
+      "status",
+      "doctor",
       "auth.login",
       "auth.logout",
       "profiles.me",
@@ -71,6 +77,13 @@ describe("cli architecture", () => {
     expect(commandSpecs.every((command) => command.help.summary.length > 0)).toBe(
       true,
     );
+  });
+
+  test("diagnostics are first-class top-level commands", () => {
+    expect(topLevelCommands.map((command) => command.id)).toEqual([
+      "status",
+      "doctor",
+    ]);
   });
 
   test("command metadata is sufficient for generic input validation", () => {

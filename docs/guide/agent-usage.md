@@ -16,8 +16,8 @@ Treat each invocation as this contract:
 - Success writes the result itself as one JSON value to stdout.
 - Usage failure writes concise text plus relevant help to stdout.
 - Operational failure writes a structured error object to stdout.
-- Interactive prompts and diagnostics use stderr.
-- Exit code `0` means success, `1` means local input or configuration failure, and `2` means Telegram or rate-limit failure.
+- Interactive prompts and output-file confirmations use stderr.
+- Exit code `0` means success, `1` means local input or configuration failure, and `2` means Telegram, rate-limit, or timeout failure.
 
 ```ts
 const process = Bun.spawn(
@@ -35,6 +35,33 @@ if (exitCode === 0) {
   const body = stdout.startsWith("{") ? JSON.parse(stdout) : undefined;
   throw new Error(body?.error.message ?? stdout.trim());
 }
+```
+
+## Verify readiness without prompts
+
+Start unattended work with the offline status command:
+
+```sh
+firetg status --json --no-input
+```
+
+If `ready` is false or an authenticated command fails unexpectedly, run the
+bounded deep diagnostic:
+
+```sh
+firetg doctor --json --no-input --timeout 15
+```
+
+Use `--no-input` on agent calls so new interactive behavior fails explicitly.
+Use `--timeout <seconds>` to bound network operations. Treat a timed-out send
+as potentially delivered and inspect the chat before retrying.
+
+For results that should not enter the model context immediately, use a trusted
+output path. firetg writes mode-`0600` files and leaves stdout empty:
+
+```sh
+firetg messages list --chat launch-team --limit 100 \
+  --no-input --timeout 30 --output /tmp/launch-team.json
 ```
 
 ## Recommended permissions
@@ -82,8 +109,11 @@ Do not retry every nonzero exit code.
 | --- | --- |
 | Plain usage text | Follow the included usage/help. Do not retry unchanged. |
 | `CONFIG_ERROR` | Ask the user to configure or log in. |
+| `INTERACTIVE_REQUIRED` | Ask the user to complete the interactive operation. |
 | `RATE_LIMITED` | Wait until `blockedUntil`, then retry once. |
 | `TELEGRAM_ERROR` | Report the Telegram failure or retry only when the operation is safe. |
+| `TIMEOUT` | Retry reads only when safe; inspect delivery before retrying sends. |
+| `OUTPUT_ERROR` | Choose a writable private output path. |
 
 For a flood wait, use the structured timing fields:
 
