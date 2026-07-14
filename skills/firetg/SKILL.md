@@ -10,15 +10,16 @@ it is unavailable and Bun is installed, prefix commands with `bunx firetg`.
 
 ## 1. Verify the session
 
-Run:
+Run without allowing prompts:
 
 ```bash
-firetg profiles me
+firetg status --json --no-input
 ```
 
-If firetg returns `CONFIG_ERROR`, ask the user to complete `firetg auth login`
-in a trusted interactive terminal. Keep API hashes, phone codes, passwords,
-and session files in that terminal rather than agent context.
+If `ready` is false, ask the user to complete `firetg auth login` in a trusted
+interactive terminal. Keep API hashes, phone codes, passwords, and session
+files in that terminal rather than agent context. For deeper diagnosis, run
+`firetg doctor --json --no-input --timeout 15`.
 
 ## 2. Choose the smallest command
 
@@ -42,6 +43,10 @@ the user needs complete bodies; previews are capped at 1,000 characters. Use
 `--include-private` only when the task requires private profile fields.
 
 Consult `firetg <scope> <command> --help` for flags outside this table.
+Use `--no-input` and a task-appropriate `--timeout <seconds>` on unattended
+calls. Use `--output <path>` when a result should be inspected incrementally;
+the file is created with mode `0600`. Compact JSON remains preferable to
+`--pretty` when minimizing agent context.
 
 ## 3. Parse the result
 
@@ -51,6 +56,8 @@ Treat exit code `0` as success and parse stdout as JSON. On nonzero exit:
 - `CONFIG_ERROR` requires local configuration or interactive login.
 - `RATE_LIMITED` requires waiting until `blockedUntil`; retry once afterward.
 - `TELEGRAM_ERROR` requires reporting the failure unless a retry is known safe.
+- `TIMEOUT` permits a cautious read retry, but a send may already have completed.
+- `INTERACTIVE_REQUIRED` requires user action in a trusted terminal.
 
 Avoid blind retries of `messages send`, because Telegram may have accepted the
 first request even when the result is ambiguous.

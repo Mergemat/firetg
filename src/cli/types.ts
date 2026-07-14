@@ -13,4 +13,6 @@ export type CliContext = {
   io: CliIo;
   createTelegram?: CreateTelegramClient;
   now?: () => Date;
+  noInput?: boolean;
+  signal?: AbortSignal;
 };

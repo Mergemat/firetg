@@ -1,37 +1,51 @@
+import { globalBooleanFlags } from "./options";
+
 export type ParsedArgs = {
   raw: string[];
   command?: string;
   subcommand?: string;
+  words: string[];
   positionals: string[];
   flags: Map<string, string>;
   flagCounts: Map<string, number>;
 };
 
 export function parseArgs(args: string[]): ParsedArgs {
-  const { flags, flagCounts } = parseFlags(args);
+  const { flags, flagCounts, words } = parseTokens(args);
   return {
     raw: args,
-    command: args[0],
-    subcommand: args[1],
-    positionals: parsePositionals(args),
+    command: words[0],
+    subcommand: words[1],
+    words,
+    positionals: words.slice(words[0]?.includes(":") ? 1 : 2),
     flags,
     flagCounts,
   };
 }
 
-function parseFlags(args: string[]): {
+function parseTokens(args: string[]): {
   flags: Map<string, string>;
   flagCounts: Map<string, number>;
+  words: string[];
 } {
   const flags = new Map<string, string>();
   const flagCounts = new Map<string, number>();
+  const words: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (!arg?.startsWith("--")) continue;
+    if (!arg?.startsWith("--")) {
+      if (arg) words.push(arg);
+      continue;
+    }
 
     const key = arg.slice(2);
     flagCounts.set(key, (flagCounts.get(key) ?? 0) + 1);
+    if (globalBooleanFlags.has(key)) {
+      flags.set(key, "");
+      continue;
+    }
+
     const value = args[index + 1];
     if (!value || value.startsWith("--")) {
       flags.set(key, "");
@@ -42,27 +56,7 @@ function parseFlags(args: string[]): {
     index += 1;
   }
 
-  return { flags, flagCounts };
-}
-
-function parsePositionals(args: string[]): string[] {
-  const positionals: string[] = [];
-  const start = args[0]?.includes(":") ? 1 : 2;
-
-  for (let index = start; index < args.length; index += 1) {
-    const arg = args[index];
-    if (!arg) continue;
-
-    if (arg.startsWith("--")) {
-      const value = args[index + 1];
-      if (value && !value.startsWith("--")) index += 1;
-      continue;
-    }
-
-    positionals.push(arg);
-  }
-
-  return positionals;
+  return { flags, flagCounts, words };
 }
 
 export function readPositiveInt(

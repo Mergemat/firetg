@@ -59,6 +59,9 @@ set, firetg uses the current user's standard `~/.config` directory.
 ## Commands
 
 ```bash
+firetg status --json --pretty
+firetg doctor --json --no-input --timeout 15
+
 firetg profiles me
 firetg profiles get telegram
 firetg profiles get 123456789
@@ -84,6 +87,18 @@ firetg dialogs list --folder 1 --limit 20
 firetg auth logout
 ```
 
+All commands accept global agent controls:
+
+```bash
+firetg messages list --chat me --limit 50 --no-input --timeout 30
+firetg messages list --chat me --limit 50 --output /tmp/messages.json
+```
+
+`--pretty` formats JSON for people. `--output <path>` keeps stdout empty and
+writes the result with file mode `0600`; its confirmation goes to stderr.
+`--no-input` fails rather than prompting, and `--timeout <seconds>` returns a
+structured `TIMEOUT` error with exit code `2`.
+
 Use `--help` for more detail:
 
 ```bash
@@ -102,7 +117,7 @@ Successful commands print JSON to stdout. Telegram, configuration, and
 rate-limit failures retain structured JSON when agents need to branch or
 schedule a retry. Command/argument mistakes print concise text plus relevant
 usage so an agent does not need a second `--help` call.
-Prompts and diagnostics print to stderr.
+Prompts and output-file confirmations print to stderr.
 
 Success output is the command result itself:
 

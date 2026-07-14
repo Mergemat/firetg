@@ -2,7 +2,12 @@ import { loadTelegramConfig } from "../../config";
 import type { ApiCredentials } from "../../localStore";
 import { createMtcuteClient, type FireTgClient } from "../../telegram";
 import { renderQr } from "../qr";
-import { errorMessage, writeInputError, writeSuccess } from "../output";
+import {
+  errorMessage,
+  writeError,
+  writeInputError,
+  writeSuccess,
+} from "../output";
 import { writeTelegramError } from "./shared";
 import type { CliContext } from "../types";
 import type { CommandSpec } from "./types";
@@ -56,7 +61,20 @@ async function runAuthLogin(
   flags: Map<string, string>,
   context: CliContext,
 ): Promise<number> {
+  if (context.noInput) {
+    writeError(
+      context,
+      "INTERACTIVE_REQUIRED",
+      "auth login requires a trusted interactive terminal; rerun without --no-input",
+    );
+    return 1;
+  }
+
   let telegram: FireTgClient | undefined;
+  const disconnect = () => {
+    void telegram?.disconnect().catch(() => undefined);
+  };
+  context.signal?.addEventListener("abort", disconnect, { once: true });
 
   try {
     const credentials = await readOrPromptCredentials(context);
@@ -74,6 +92,7 @@ async function runAuthLogin(
       config = await loadTelegramConfig(context.store, { requireAuth: false });
       telegram = await createMtcuteClient(config);
     }
+    if (context.signal?.aborted) throw new Error("Command timed out");
 
     if (flags.has("phone")) {
       await loginWithPhone(telegram, context);
@@ -93,6 +112,7 @@ async function runAuthLogin(
     }
     return writeTelegramError(context, error, "auth");
   } finally {
+    context.signal?.removeEventListener("abort", disconnect);
     await telegram?.disconnect().catch(() => undefined);
   }
 }

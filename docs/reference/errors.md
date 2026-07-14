@@ -12,7 +12,13 @@ when structured fields affect recovery.
 type FireTgError = {
   ok: false;
   error: {
-    code: "CONFIG_ERROR" | "RATE_LIMITED" | "TELEGRAM_ERROR";
+    code:
+      | "CONFIG_ERROR"
+      | "INTERACTIVE_REQUIRED"
+      | "OUTPUT_ERROR"
+      | "RATE_LIMITED"
+      | "TELEGRAM_ERROR"
+      | "TIMEOUT";
     message: string;
     blockedUntil?: string;
     remainingSeconds?: number;
@@ -26,7 +32,7 @@ type FireTgError = {
 | --- | --- | --- |
 | `0` | Success | Parse stdout as the command result |
 | `1` | Input or local configuration failure | Fix arguments, configure credentials, or log in |
-| `2` | Telegram or rate-limit failure | Inspect the error code before retrying |
+| `2` | Telegram, rate-limit, or timeout failure | Inspect the error code before retrying |
 
 Help commands also exit with `0`. Unknown commands, unknown or duplicate
 flags, extra arguments, missing flag values, and invalid numeric ranges exit
@@ -96,6 +102,15 @@ Telegram rejected the operation or the MTProto request failed for another reason
 ```
 
 Retry only when the operation is idempotent or you can verify whether it completed. Be especially careful with `messages send`, where a blind retry can duplicate a message.
+
+## Agent-control failures
+
+- `INTERACTIVE_REQUIRED` means `--no-input` prevented a prompt. Complete the
+  operation in a trusted interactive terminal when appropriate.
+- `TIMEOUT` means `--timeout <seconds>` expired. A timed-out send can have
+  ambiguous delivery state, so inspect the chat before retrying.
+- `OUTPUT_ERROR` means `--output` could not create or secure the destination
+  file. The error is returned on stdout because no safe output file exists.
 
 ## Bun example
 

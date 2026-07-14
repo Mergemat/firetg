@@ -22,6 +22,17 @@ A list command writes an array directly:
 
 Output is compact, one-line JSON. Examples in these docs are formatted across multiple lines for readability.
 
+Pass `--pretty` to indent JSON for human inspection. Pass `--output <path>` to
+write the same compact or pretty output to a file instead of stdout. firetg
+creates parent directories, sets the file mode to `0600`, and writes the
+absolute destination confirmation to stderr. Check the process exit code even
+when output is written to a file: operational failures are written there too.
+
+```sh
+firetg dialogs list --limit 50 --output /tmp/dialogs.json
+firetg status --pretty
+```
+
 ## Operational failure
 
 Configuration, Telegram, and rate-limit failures use a stable envelope:

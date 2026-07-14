@@ -80,8 +80,213 @@ describe("firetg cli", () => {
     expect(harness.stdout.join("")).toContain("auth");
     expect(harness.stdout.join("")).toContain("messages");
     expect(harness.stdout.join("")).toContain("GETTING STARTED");
-    expect(harness.stdout.join("")).toContain("Use \"firetg <module>\"");
+    expect(harness.stdout.join("")).toContain("status");
+    expect(harness.stdout.join("")).toContain("doctor");
+    expect(harness.stdout.join("")).toContain("--no-input");
+    expect(harness.stdout.join("")).toContain("--timeout <seconds>");
+    expect(harness.stdout.join("")).toContain("firetg <command> --help");
     expect(harness.stderr.join("")).toBe("");
+  });
+
+  test("status reports local readiness without contacting Telegram", async () => {
+    const missingHarness = createHarness();
+    let contacted = false;
+    const missingExitCode = await runCli(["status", "--json"], {
+      store: missingHarness.store,
+      io: missingHarness.io,
+      createTelegram: async () => {
+        contacted = true;
+        return fakeTelegram();
+      },
+    });
+
+    expect(missingExitCode).toBe(0);
+    expect(contacted).toBe(false);
+    expect(JSON.parse(missingHarness.stdout.join(""))).toMatchObject({
+      ready: false,
+      config: { state: "missing" },
+      session: { state: "missing" },
+    });
+
+    const readyHarness = createHarness();
+    const { store } = await createStoredAuthStore();
+    const readyExitCode = await runCli(["status"], {
+      store,
+      io: readyHarness.io,
+    });
+
+    expect(readyExitCode).toBe(0);
+    expect(JSON.parse(readyHarness.stdout.join(""))).toMatchObject({
+      ready: true,
+      config: { state: "valid", path: store.paths.config },
+      session: { state: "sqlite", path: store.paths.telegram },
+    });
+  });
+
+  test("doctor runs machine-readable local and Telegram checks", async () => {
+    const harness = createHarness();
+    const { store } = await createStoredAuthStore();
+    const exitCode = await runCli(["doctor", "--json"], {
+      store,
+      io: harness.io,
+      createTelegram: async () =>
+        fakeTelegram({
+          getMe: async () => ({
+            id: "42",
+            firstName: "Fire",
+            username: "firetg",
+            phone: "+10000000000",
+          }),
+        }),
+    });
+
+    expect(exitCode).toBe(0);
+    const output = JSON.parse(harness.stdout.join(""));
+    expect(output.ok).toBe(true);
+    expect(output.account).toEqual({
+      id: "42",
+      firstName: "Fire",
+      username: "firetg",
+    });
+    expect(output.account.phone).toBeUndefined();
+    expect(output.checks.map((check: { id: string }) => check.id)).toContain(
+      "telegram",
+    );
+  });
+
+  test("doctor exits 1 with actionable failed checks when setup is missing", async () => {
+    const harness = createHarness();
+    const exitCode = await runCli(["doctor", "--json"], {
+      store: harness.store,
+      io: harness.io,
+    });
+
+    expect(exitCode).toBe(1);
+    const output = JSON.parse(harness.stdout.join(""));
+    expect(output.ok).toBe(false);
+    expect(
+      output.checks.some(
+        (check: { id: string; status: string; fix?: string }) =>
+          check.id === "config" &&
+          check.status === "fail" &&
+          check.fix?.includes("auth login"),
+      ),
+    ).toBe(true);
+  });
+
+  test("global flags work before the command and pretty-print JSON", async () => {
+    const harness = createHarness();
+    const exitCode = await runCli(["--pretty", "--no-input", "status"], {
+      store: harness.store,
+      io: harness.io,
+    });
+
+    expect(exitCode).toBe(0);
+    expect(harness.stdout.join("")).toContain("\n  \"version\"");
+    expect(JSON.parse(harness.stdout.join("")).ready).toBe(false);
+  });
+
+  test("global flags validate values before command execution", async () => {
+    for (const args of [
+      ["status", "--timeout", "0"],
+      ["status", "--timeout", "nope"],
+      ["status", "--output"],
+    ]) {
+      const harness = createHarness();
+      const exitCode = await runCli(args, {
+        store: harness.store,
+        io: harness.io,
+      });
+
+      expect(exitCode).toBe(1);
+      expect(harness.stdout.join("")).toContain("Usage: firetg status");
+    }
+  });
+
+  test("--output writes private JSON and keeps stdout clean", async () => {
+    const harness = createHarness();
+    const directory = await mkdtemp(join(tmpdir(), "firetg-output-"));
+    const outputPath = join(directory, "nested", "status.json");
+    await mkdir(join(directory, "nested"));
+    await writeFile(outputPath, "old", { mode: 0o644 });
+    const exitCode = await runCli(
+      ["status", "--pretty", "--output", outputPath],
+      { store: harness.store, io: harness.io },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(harness.stdout.join("")).toBe("");
+    expect(harness.stderr.join("")).toContain(`Output written to: ${outputPath}`);
+    expect(JSON.parse(await readFile(outputPath, "utf8")).ready).toBe(false);
+    expect((await stat(outputPath)).mode & 0o777).toBe(0o600);
+  });
+
+  test("--output reports a structured failure when the path is unwritable", async () => {
+    const harness = createHarness();
+    const directory = await mkdtemp(join(tmpdir(), "firetg-output-"));
+    const exitCode = await runCli(["status", "--output", directory], {
+      store: harness.store,
+      io: harness.io,
+    });
+
+    expect(exitCode).toBe(1);
+    expect(JSON.parse(harness.stdout.join(""))).toMatchObject({
+      ok: false,
+      error: { code: "OUTPUT_ERROR", path: directory },
+    });
+  });
+
+  test("--no-input rejects authentication before prompting", async () => {
+    const harness = createHarness();
+    let prompted = false;
+    const exitCode = await runCli(["auth", "login", "--no-input"], {
+      store: harness.store,
+      io: {
+        ...harness.io,
+        question: async () => {
+          prompted = true;
+          return "";
+        },
+      },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(prompted).toBe(false);
+    expect(JSON.parse(harness.stdout.join(""))).toMatchObject({
+      ok: false,
+      error: { code: "INTERACTIVE_REQUIRED" },
+    });
+  });
+
+  test("--timeout bounds a stalled Telegram command", async () => {
+    const harness = createHarness();
+    const { store } = await createStoredAuthStore();
+    let disconnected = 0;
+    const exitCode = await runCli(
+      ["profiles", "me", "--timeout", "0.01", "--no-input"],
+      {
+        store,
+        io: harness.io,
+        createTelegram: async () =>
+          fakeTelegram({
+            getMe: () => new Promise(() => undefined),
+            disconnect: async () => {
+              disconnected += 1;
+            },
+          }),
+      },
+    );
+
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual({
+      ok: false,
+      error: {
+        code: "TIMEOUT",
+        message: "Command timed out after 0.01 seconds",
+        timeoutSeconds: 0.01,
+      },
+    });
+    expect(disconnected).toBeGreaterThanOrEqual(1);
   });
 
   test("module without subcommand prints module help", async () => {

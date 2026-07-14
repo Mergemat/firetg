@@ -16,6 +16,7 @@ firetg messages send --help
 
 | Group | Commands | Purpose |
 | --- | --- | --- |
+| [Diagnostics](/commands/diagnostics.md) | `status`, `doctor` | Inspect readiness and verify Telegram connectivity |
 | [`auth`](/commands/auth.md) | `login`, `logout` | Create and remove the local Telegram session |
 | [`profiles`](/commands/profiles.md) | `me`, `get` | Read account and user profiles |
 | [`channels`](/commands/channels.md) | `view`, `messages`, `pinned` | Inspect broadcast channels |
@@ -27,8 +28,13 @@ firetg messages send --help
 
 - All successful command results are JSON written to stdout.
 - Structured failures are also JSON written to stdout.
-- Prompts and diagnostics are written to stderr.
+- Prompts and output-file confirmations are written to stderr.
 - `--help` is available at the root, group, and command level.
+- `--json` explicitly requests the default JSON contract.
+- `--pretty` formats JSON with indentation.
+- `--output <path>` writes output to a mode-`0600` file and leaves stdout empty.
+- `--no-input` rejects commands that require prompts.
+- `--timeout <seconds>` bounds command execution and accepts positive decimals.
 - Positive integer options reject zero, negative values, and non-integers.
 
 ## Legacy aliases

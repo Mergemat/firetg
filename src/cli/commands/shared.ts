@@ -7,6 +7,7 @@ import {
 } from "../../telegram";
 import { rpcErrorText, telegramWait } from "../../telegram/errors";
 import type { ParsedArgs } from "../args";
+import { InteractiveRequiredError } from "../errors";
 import { errorMessage, writeError } from "../output";
 import type { CliContext } from "../types";
 
@@ -21,10 +22,15 @@ export async function runWithTelegram(
   } = {},
 ): Promise<number> {
   let telegram: FireTgClient | undefined;
+  const disconnect = () => {
+    void telegram?.disconnect().catch(() => undefined);
+  };
+  context.signal?.addEventListener("abort", disconnect, { once: true });
 
   try {
     const config = await loadTelegramConfig(context.store);
     telegram = await (context.createTelegram ?? createMtcuteClient)(config);
+    if (context.signal?.aborted) throw new Error("Command timed out");
     return await handler(telegram);
   } catch (error) {
     const handled = await options.onError?.(error);
@@ -32,6 +38,7 @@ export async function runWithTelegram(
 
     return writeTelegramError(context, error, options.operation);
   } finally {
+    context.signal?.removeEventListener("abort", disconnect);
     await telegram?.disconnect().catch(() => undefined);
   }
 }
@@ -42,6 +49,16 @@ export function writeTelegramError(
   operation: "read" | "send" | "auth" = "read",
   details: Record<string, unknown> = {},
 ): number {
+  if (error instanceof InteractiveRequiredError) {
+    writeError(
+      context,
+      "INTERACTIVE_REQUIRED",
+      `${error.message}; rerun without --no-input in a trusted interactive terminal`,
+      details,
+    );
+    return 1;
+  }
+
   const wait = telegramWait(error);
   if (wait) {
     const blockedUntil = new Date(
