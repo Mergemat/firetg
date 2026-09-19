@@ -1424,6 +1424,105 @@ describe("firetg cli", () => {
     ]);
   });
 
+  test.each([false, true])("batch history groups results on one connection, full text: %s", async (fullText) => {
+    const harness = createHarness();
+    const { store } = await createStoredAuthStore();
+    const calls: Array<{ chat: string; limit: number; search?: string }> = [];
+    let connections = 0;
+    let disconnects = 0;
+    const exitCode = await runCli(
+      ["messages", "list", "--chats", " alice,missing,bob,alice ", "--limit", "20", "--search", "deploy", ...(fullText ? ["--full-text"] : [])],
+      {
+        store,
+        io: harness.io,
+        createTelegram: async () => {
+          connections++;
+          return fakeTelegram({
+            listMessages: async (options) => {
+              calls.push(options);
+              if (options.chat === "missing") throw new Error("USERNAME_NOT_OCCUPIED");
+              return [{ id: 1, date: 1, text: "x".repeat(1200), senderId: "42", chatId: options.chat, outgoing: false }];
+            },
+            disconnect: async () => { disconnects++; },
+          });
+        },
+      },
+    );
+    expect(exitCode).toBe(2);
+    expect(connections).toBe(1);
+    expect(disconnects).toBe(1);
+    expect(calls).toEqual(["alice", "missing", "bob"].map((chat) => ({ chat, limit: 20, search: "deploy" })));
+    const results = JSON.parse(harness.stdout.join(""));
+    expect(results.map((result: { chat: string }) => result.chat)).toEqual(["alice", "missing", "bob"]);
+    expect(results[1].error.code).toBe("TELEGRAM_ERROR");
+    for (const index of [0, 2]) {
+      expect(results[index].messages[0].text).toHaveLength(fullText ? 1200 : 1000);
+      expect(results[index].messages[0].textTruncated).toBe(fullText ? undefined : true);
+    }
+  });
+
+  test("batch history stops issuing requests on a flood wait and preserves earlier results", async () => {
+    const harness = createHarness();
+    const { store } = await createStoredAuthStore();
+    const calls: string[] = [];
+    const exitCode = await runCli(["messages", "list", "--chats", "alice,bob,carol"], {
+      store,
+      io: harness.io,
+      now: () => new Date("2026-07-01T00:00:00.000Z"),
+      createTelegram: async () => fakeTelegram({
+        listMessages: async ({ chat }) => {
+          calls.push(chat);
+          if (chat === "bob") throw tl.RpcError.fromTl({ errorCode: 420, errorMessage: "FLOOD_WAIT_60" });
+          return [];
+        },
+      }),
+    });
+    expect(exitCode).toBe(2);
+    expect(calls).toEqual(["alice", "bob"]);
+    const results = JSON.parse(harness.stdout.join(""));
+    expect(results[0]).toEqual({ chat: "alice", messages: [] });
+    expect(results[1].error).toMatchObject({ code: "RATE_LIMITED", remainingSeconds: 60, blockedUntil: "2026-07-01T00:01:00.000Z" });
+    expect(results[2]).toEqual({ chat: "carol", error: results[1].error });
+  });
+
+  test("batch history returns empty chats successfully with the default per-chat limit", async () => {
+    const harness = createHarness();
+    const { store } = await createStoredAuthStore();
+    const limits: number[] = [];
+    const exitCode = await runCli(["messages", "list", "--chats", "alice,bob"], {
+      store,
+      io: harness.io,
+      createTelegram: async () => fakeTelegram({
+        listMessages: async ({ limit }) => { limits.push(limit); return []; },
+      }),
+    });
+    expect(exitCode).toBe(0);
+    expect(limits).toEqual([20, 20]);
+    expect(JSON.parse(harness.stdout.join(""))).toEqual([
+      { chat: "alice", messages: [] }, { chat: "bob", messages: [] },
+    ]);
+  });
+
+  test.each([
+    ["--chat", "alice", "--chats", "bob"],
+    ["--chats", "alice,,bob"],
+    ["--chats", " , "],
+    ["--chats", "alice,"],
+    ["--chats", "alice", "--limit", "101"],
+  ].map((flags) => ({ flags })))("batch history rejects invalid input before connecting: %j", async ({ flags }) => {
+    const harness = createHarness();
+    let connected = false;
+    const exitCode = await runCli(["messages", "list", ...flags], {
+      store: harness.store,
+      io: harness.io,
+      createTelegram: async () => { connected = true; return fakeTelegram(); },
+    });
+    expect(exitCode).toBe(1);
+    expect(connected).toBe(false);
+    expect(harness.stdout.join("")).toContain("Usage: firetg messages list");
+    expect(harness.stdout.join("")).not.toContain("CONFIG_ERROR");
+  });
+
   test("messages search emits hashtag matches", async () => {
     const harness = createHarness();
     const calls: Array<{
@@ -1576,7 +1675,7 @@ describe("firetg cli", () => {
 
     expect(exitCode).toBe(1);
     expect(harness.stdout.join("")).toContain(
-      "messages list requires --chat.\nUsage: firetg messages list",
+      "messages list requires --chat or --chats.\nUsage: firetg messages list",
     );
   });
 

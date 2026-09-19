@@ -32,6 +32,7 @@ Use canonical scoped commands:
 | Dialogs | `firetg dialogs list --limit <1-100>` |
 | Folders | `firetg folders list` |
 | Chat history | `firetg messages list --chat <peer> --limit <1-100>` |
+| Batch chat history | `firetg messages list --chats <peer,peer,...> --limit <1-100>` |
 | Search chat text | `firetg messages list --chat <peer> --search <query> --limit <1-100>` |
 | Search hashtag | `firetg messages search --chat <peer> --hashtag <tag> --limit <1-100>` |
 | Channel details | `firetg channels view --username <name>` |
@@ -49,6 +50,24 @@ the file is created with mode `0600`. Compact JSON remains preferable to
 `--pretty` when minimizing agent context.
 
 ## 3. Parse the result
+
+For requests such as "show the last 20 messages of these dialogs", use one
+batch call with the selected usernames, peer IDs, or aliases:
+
+```bash
+firetg messages list --chats alice,bob,me --limit 20 --no-input --timeout 60
+```
+
+`--limit` applies per dialog. Batch output is an array of `{chat, messages}`
+or `{chat, error}` entries, in input order with exact duplicates removed.
+`--search` and `--full-text` apply to every dialog. Use either `--chat` or
+`--chats` in a call.
+
+Parse batch JSON even on a nonzero exit code and retain successful entries.
+An inaccessible dialog does not stop later reads. A rate limit stops further
+requests; remaining entries carry the same `RATE_LIMITED` error and deadline.
+Retry only failed dialogs when their error guidance permits it. Failures
+before the batch starts use the normal `{ok: false, error}` envelope.
 
 Treat exit code `0` as success and parse stdout as JSON. On nonzero exit:
 

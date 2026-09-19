@@ -77,6 +77,7 @@ firetg messages send --username telegram --file ./photo.jpg --text "caption"
 firetg messages send --username telegram --file ./report.pdf --document
 firetg messages send --username telegram --text "hello later" --schedule-at 2030-07-05T15:00
 firetg messages list --chat me --limit 20
+firetg messages list --chats alice,bob,me --limit 20
 firetg messages list --chat me --search deploy --limit 10
 firetg messages search --chat launch-team --hashtag "#deploy" --limit 100
 firetg messages search --chat launch-team --reply-to 101 --from 42,alice --limit 50
@@ -86,6 +87,10 @@ firetg dialogs list --folder 1 --limit 20
 
 firetg auth logout
 ```
+
+For batch history, `--chats alice,bob,me --limit 20` reads 20 messages per
+dialog on one connection. Results are grouped by chat with individual errors;
+successful reads remain available if another chat fails.
 
 All commands accept global agent controls:
 
