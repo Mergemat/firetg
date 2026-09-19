@@ -23,7 +23,8 @@ export async function createMtcuteClient(
     apiId: config.apiId,
     apiHash: config.apiHash,
     storage: config.storagePath,
-    disableUpdates: true,
+    // QR login needs updateLoginToken to advance as soon as the code is scanned.
+    disableUpdates: false,
     logLevel: 0,
   });
 
