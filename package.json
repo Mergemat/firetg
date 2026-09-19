@@ -41,13 +41,13 @@
     "typecheck": "bunx tsc --noEmit"
   },
   "devDependencies": {
-    "@types/bun": "1.3.14",
+    "@types/bun": "1.4.2",
     "@types/qrcode-terminal": "^0.12.2",
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@mtcute/bun": "^0.31.0",
-    "@mtcute/convert": "^0.31.0",
+    "@mtcute/bun": "^0.32.1",
+    "@mtcute/convert": "^0.32.1",
     "qrcode-terminal": "^0.12.0"
   }
 }
