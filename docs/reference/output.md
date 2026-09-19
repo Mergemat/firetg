@@ -57,8 +57,8 @@ code already identifies failure, and the usage line prevents a follow-up help
 call.
 
 ```text
-messages list requires --chat.
-Usage: firetg messages list --chat <peer> [--limit <n>] [--search <query>]
+messages list requires --chat or --chats.
+Usage: firetg messages list (--chat <peer> | --chats <peer[,peer...]>) [--limit <n>] [--search <query>]
 ```
 
 ## Account
@@ -129,11 +129,20 @@ type MessageSummary = {
 };
 ```
 
-Message-reading commands return a maximum of 100 items. `text` is a
+Message-reading commands return a maximum of 100 items per chat. `text` is a
 1,000-character preview by default; `textTruncated` is present only when text
 was shortened. Pass `--full-text` when the complete body is required.
 
 Messages are returned newest first. `readReceipt` is included only when Telegram exposes the dialog read state.
+
+### Batch message history
+
+`messages list --chats alice,bob --limit 20` returns an array of
+`{chat, messages: MessageSummary[]}` or `{chat, error}` entries. `chat` is the
+trimmed input peer. The array keeps input order and removes exact duplicates.
+Per-chat errors use the same fields as the normal error envelope's `error`.
+Partial failures return a nonzero exit code while preserving successful entries.
+See [batch history](/commands/messages.md#batch-history) for retry behavior.
 
 ## Media summary
 

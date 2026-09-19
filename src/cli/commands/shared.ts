@@ -8,7 +8,7 @@ import {
 import { rpcErrorText, telegramWait } from "../../telegram/errors";
 import type { ParsedArgs } from "../args";
 import { InteractiveRequiredError } from "../errors";
-import { errorMessage, writeError } from "../output";
+import { errorMessage, writeError, type ErrorCode } from "../output";
 import type { CliContext } from "../types";
 
 export async function runWithTelegram(
@@ -49,14 +49,33 @@ export function writeTelegramError(
   operation: "read" | "send" | "auth" = "read",
   details: Record<string, unknown> = {},
 ): number {
+  const failure = telegramFailure(context, error, operation);
+  const { code, message, ...timing } = failure.error;
+  writeError(context, code, message, { ...timing, ...details });
+  return failure.exitCode;
+}
+
+export function telegramFailure(
+  context: CliContext,
+  error: unknown,
+  operation: "read" | "send" | "auth" = "read",
+): {
+  exitCode: number;
+  error: {
+    code: ErrorCode;
+    message: string;
+    blockedUntil?: string;
+    remainingSeconds?: number;
+  };
+} {
   if (error instanceof InteractiveRequiredError) {
-    writeError(
-      context,
-      "INTERACTIVE_REQUIRED",
-      `${error.message}; rerun without --no-input in a trusted interactive terminal`,
-      details,
-    );
-    return 1;
+    return {
+      exitCode: 1,
+      error: {
+        code: "INTERACTIVE_REQUIRED",
+        message: `${error.message}; rerun without --no-input in a trusted interactive terminal`,
+      },
+    };
   }
 
   const wait = telegramWait(error);
@@ -65,25 +84,27 @@ export function writeTelegramError(
       commandNow(context).getTime() + wait.seconds * 1000,
     ).toISOString();
 
-    writeError(
-      context,
-      "RATE_LIMITED",
-      waitMessage(wait.kind, blockedUntil, wait.seconds, operation),
-      { blockedUntil, remainingSeconds: wait.seconds, ...details },
-    );
-    return 2;
+    return {
+      exitCode: 2,
+      error: {
+        code: "RATE_LIMITED",
+        message: waitMessage(wait.kind, blockedUntil, wait.seconds, operation),
+        blockedUntil,
+        remainingSeconds: wait.seconds,
+      },
+    };
   }
 
   const configFailure = isConfigFailure(error);
-  writeError(
-    context,
-    configFailure ? "CONFIG_ERROR" : "TELEGRAM_ERROR",
-    configFailure
-      ? errorMessage(error)
-      : telegramErrorMessage(error, operation),
-    details,
-  );
-  return configFailure ? 1 : 2;
+  return {
+    exitCode: configFailure ? 1 : 2,
+    error: {
+      code: configFailure ? "CONFIG_ERROR" : "TELEGRAM_ERROR",
+      message: configFailure
+        ? errorMessage(error)
+        : telegramErrorMessage(error, operation),
+    },
+  };
 }
 
 function waitMessage(

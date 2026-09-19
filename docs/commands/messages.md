@@ -57,15 +57,16 @@ The legacy alias is `firetg send`.
 ## `messages list`
 
 ```text
-firetg messages list --chat <peer> [--limit <n>] [--search <query>]
+firetg messages list (--chat <peer> | --chats <peer[,peer...]>) [--limit <n>] [--search <query>]
 ```
 
 Reads recent history newest first. `--chat` accepts a username, peer ID, or self alias.
 
 | Option | Required | Default | Description |
 | --- | --- | --- | --- |
-| `--chat <peer>` | Yes | | Chat or peer |
-| `--limit <n>` | No | `20` | Maximum messages to return |
+| `--chat <peer>` | One of `--chat` / `--chats` | | Single chat or peer |
+| `--chats <peer[,peer...]>` | One of `--chat` / `--chats` | | Batch of comma-separated peers |
+| `--limit <n>` | No | `20` | Maximum messages to return per chat |
 | `--search <query>` | No | | Search within the chat history |
 | `--full-text` | No | Off | Return complete text instead of 1,000-character previews |
 
@@ -78,6 +79,38 @@ The legacy alias is `firetg messages:list`.
 
 `--limit` must be between 1 and 100. Preview results include
 `textTruncated: true` when shortened.
+
+### Batch history
+
+Read the last 20 messages from each selected dialog in one command:
+
+```sh
+firetg messages list --chats alice,bob,me --limit 20
+```
+
+The batch uses one Telegram connection and reads chats sequentially. Results
+follow input order, with whitespace trimmed and exact duplicate peers removed.
+Empty peers are rejected. `--search` and `--full-text` apply to every chat.
+
+Each entry contains either `messages` or `error`:
+
+```json
+[
+  {"chat": "alice", "messages": []},
+  {"chat": "bob", "error": {"code": "TELEGRAM_ERROR", "message": "Telegram username was not found. Check the username and retry"}},
+  {"chat": "me", "messages": []}
+]
+```
+
+An empty `messages` array is a successful read. Inaccessible chats do not
+discard successful results or stop later reads. A rate limit stops further
+requests and attaches the same `RATE_LIMITED` error, including `blockedUntil`
+and `remainingSeconds`, to the remaining chats.
+
+Exit code `0` means every chat succeeded; `2` indicates a Telegram or rate-limit
+failure. Local input or configuration errors exit `1`. Failures before reading
+the batch use the normal error envelope. Keep successful entries when handling
+a partial failure and retry only failed chats when appropriate.
 
 ## `messages search`
 

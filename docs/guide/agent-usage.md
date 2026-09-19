@@ -64,6 +64,20 @@ firetg messages list --chat launch-team --limit 100 \
   --no-input --timeout 30 --output /tmp/launch-team.json
 ```
 
+## Read multiple dialogs in one call
+
+For "show the last 20 messages of these dialogs", use batch history:
+
+```sh
+firetg messages list --chats alice,bob,me --limit 20 --no-input --timeout 60
+```
+
+The limit applies per dialog. Parse the JSON array even when the exit code is
+nonzero: each entry contains `chat` plus either `messages` or `error`. Preserve
+successful entries and retry only failed chats when their errors permit it.
+A flood wait stops further requests and gives remaining chats the same retry
+deadline. Setup failures still return the normal error envelope.
+
 ## Recommended permissions
 
 Start with read-only commands:

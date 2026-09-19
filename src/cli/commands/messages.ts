@@ -4,27 +4,32 @@ import {
   matchesScopedCommand,
   messagesForOutput,
   runWithTelegram,
+  telegramFailure,
 } from "./shared";
 import type { CommandSpec } from "./types";
 
 export const messagesListCommand: CommandSpec = {
   id: "messages.list",
-  usage: "messages list --chat <peer> [--limit <n>] [--search <query>]",
+  usage: "messages list (--chat <peer> | --chats <peer[,peer...]>) [--limit <n>] [--search <query>]",
   help: {
-    summary: "List messages from a chat",
+    summary: "List messages from one or more chats",
     description:
-      "Reads recent message history for one Telegram chat or peer.",
+      "Reads recent message history, newest first. --chats returns grouped results or errors per chat; the limit applies to each chat. Partial failures exit nonzero. Rate limits stop further requests.",
     options: [
       {
         name: "--chat",
         value: "<peer>",
         summary: "Chat, username, id, or peer alias",
-        required: true,
+      },
+      {
+        name: "--chats",
+        value: "<peer[,peer...]>",
+        summary: "Comma-separated chats, usernames, ids, or peer aliases",
       },
       {
         name: "--limit",
         value: "<n>",
-        summary: "Maximum messages to return",
+        summary: "Maximum messages to return per chat",
         defaultValue: "20",
         integer: { min: 1, max: 100 },
       },
@@ -45,6 +50,10 @@ export const messagesListCommand: CommandSpec = {
         summary: "Read the latest saved-message history",
       },
       {
+        command: "firetg messages list --chats alice,bob,me --limit 20",
+        summary: "Read the latest 20 messages from each chat",
+      },
+      {
         command: "firetg messages list --chat me --search deploy --limit 10",
         summary: "Search within one chat",
       },
@@ -55,29 +64,74 @@ export const messagesListCommand: CommandSpec = {
     matchesScopedCommand(parsed, "messages", "list") ||
     parsed.command === "messages:list",
   async run({ parsed, context }) {
-    const chat = parsed.flags.get("chat");
+    const chat = parsed.flags.get("chat")?.trim();
+    const batch = parsed.flags.has("chats");
 
-    if (!chat) {
+    if (parsed.flags.has("chat") && batch) {
       writeInputError(
         context,
         messagesListCommand,
-        "messages list requires --chat",
+        "messages list accepts either --chat or --chats, not both",
+      );
+      return 1;
+    }
+
+    if (!chat && !batch) {
+      writeInputError(
+        context,
+        messagesListCommand,
+        "messages list requires --chat or --chats",
+      );
+      return 1;
+    }
+
+    const chats = batch
+      ? [...new Set(parsed.flags.get("chats")!.split(",").map((peer) => peer.trim()))]
+      : [chat!];
+    if (chats.some((peer) => !peer)) {
+      writeInputError(
+        context,
+        messagesListCommand,
+        "--chats requires a comma-separated list without empty peers",
       );
       return 1;
     }
 
     return runWithTelegram(context, async (telegram) => {
-      writeSuccess(context, {
-        data: messagesForOutput(
+      const readMessages = async (peer: string) =>
+        messagesForOutput(
           await telegram.listMessages({
-            chat,
+            chat: peer,
             limit: readPositiveInt(parsed.flags, "limit", 20),
             search: parsed.flags.get("search"),
           }),
           parsed.flags.has("full-text"),
-        ),
-      });
-      return 0;
+        );
+
+      if (!batch) {
+        writeSuccess(context, { data: await readMessages(chat!) });
+        return 0;
+      }
+
+      const results = [];
+      let exitCode = 0;
+      let blocked: ReturnType<typeof telegramFailure> | undefined;
+      for (const peer of chats) {
+        if (blocked) {
+          results.push({ chat: peer, error: blocked.error });
+          continue;
+        }
+        try {
+          results.push({ chat: peer, messages: await readMessages(peer) });
+        } catch (error) {
+          const failure = telegramFailure(context, error);
+          results.push({ chat: peer, error: failure.error });
+          exitCode = Math.max(exitCode, failure.exitCode);
+          if (failure.error.code === "RATE_LIMITED") blocked = failure;
+        }
+      }
+      writeSuccess(context, { data: results });
+      return exitCode;
     });
   },
 };
