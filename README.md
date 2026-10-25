@@ -163,4 +163,4 @@ guidelines. Report security vulnerabilities according to
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Released under the [GPL-3.0-or-later](LICENSE) license.

@@ -111,7 +111,7 @@ export default defineConfig({
     },
     footer: {
       message: "Built for scripts, agents, and humans who prefer JSON.",
-      copyright: "Released under the MIT License.",
+      copyright: "Released under the GPL-3.0-or-later license.",
     },
     docFooter: {
       prev: "Previous",
