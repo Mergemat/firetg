@@ -1,6 +1,6 @@
 {
   "name": "firetg",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "description": "Telegram MTProto CLI for scripts and agents, powered by mtcute.",
   "license": "GPL-3.0-or-later",
   "author": "Bagautdin Omarov",
