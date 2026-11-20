@@ -23,6 +23,7 @@ export type SentMessage = {
   date: number;
   text: string;
   media?: MessageMediaSummary;
+  replyToMessageId?: number;
 };
 
 export type SendMessageInput = {
@@ -31,6 +32,7 @@ export type SendMessageInput = {
   forceDocument?: boolean;
   /** Unix timestamp in seconds for Telegram-native scheduled delivery. */
   scheduledAt?: number;
+  replyTo?: number;
 };
 
 export type DialogSummary = {

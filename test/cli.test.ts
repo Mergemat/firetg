@@ -1163,6 +1163,66 @@ describe("firetg cli", () => {
     ]);
   });
 
+  test("messages send replies to a message and reports the reply target", async () => {
+    const harness = createHarness();
+    const sent: Array<{ to: string; message: string | SendMessageInput }> = [];
+    const { store } = await createStoredAuthStore();
+    const directory = await mkdtemp(join(tmpdir(), "firetg-attachment-"));
+    const attachment = join(directory, "photo.jpg");
+    await writeFile(attachment, "image");
+    const telegram = fakeTelegram({
+      sendMessage: async (to, message) => {
+        sent.push({ to, message });
+        return { id: 14, date: 1_800_000_004, text: "", replyToMessageId: 1772796 };
+      },
+    });
+
+    const textExit = await runCli(
+      ["messages", "send", "--id", "123456789", "--text", "agreed", "--reply-to", "1772796"],
+      { store, io: harness.io, createTelegram: async () => telegram },
+    );
+    const textOutput = JSON.parse(harness.stdout.join(""));
+    harness.stdout.length = 0;
+    const fileExit = await runCli(
+      ["messages", "send", "--username", "telegram", "--file", attachment, "--reply-to", "1772796"],
+      { store, io: harness.io, createTelegram: async () => telegram },
+    );
+
+    expect([textExit, fileExit]).toEqual([0, 0]);
+    expect(sent).toEqual([
+      { to: "123456789", message: { text: "agreed", replyTo: 1772796 } },
+      {
+        to: "telegram",
+        message: {
+          text: undefined,
+          attachment,
+          forceDocument: false,
+          replyTo: 1772796,
+        },
+      },
+    ]);
+    expect(textOutput).toEqual({
+      id: 14,
+      date: 1_800_000_004,
+      replyToMessageId: 1772796,
+    });
+  });
+
+  test("messages send rejects invalid reply targets before loading config", async () => {
+    for (const value of ["0", "1.5", "abc"]) {
+      const harness = createHarness();
+      const exitCode = await runCli(
+        ["messages", "send", "--username", "telegram", "--text", "hi", "--reply-to", value],
+        { store: harness.store, io: harness.io },
+      );
+
+      expect(exitCode).toBe(1);
+      expect(harness.stdout.join("")).toContain(
+        "messages send requires --reply-to to be a positive message id",
+      );
+    }
+  });
+
   test("messages send rejects ambiguous destination flags before loading config", async () => {
     const harness = createHarness();
 

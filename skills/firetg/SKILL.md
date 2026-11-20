@@ -90,6 +90,7 @@ running the command.
 ```bash
 firetg messages send --username alice --text "hello"
 firetg messages send --username alice --file ./report.pdf --document
+firetg messages send --username alice --text "agreed" --reply-to 101
 firetg messages send --username alice --text "release is live" \
   --schedule-at 2026-07-11T18:00:00+03:00
 ```

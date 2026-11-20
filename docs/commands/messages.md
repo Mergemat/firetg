@@ -11,7 +11,7 @@ Send text or files, read history, search scoped streams, and list pinned message
 ```text
 firetg messages send (--username <username> | --id <user-id>) \
   (--text <message> | --file <path>) \
-  [--document] [--schedule-at <when>]
+  [--document] [--schedule-at <when>] [--reply-to <message-id>]
 ```
 
 Exactly one destination is required. Supply text, a file, or both when the text is an attachment caption.
@@ -26,12 +26,14 @@ Exactly one destination is required. Supply text, a file, or both when the text 
 | `--document` | Force the file to be sent as a document |
 | `--force-document` | Alias for `--document` |
 | `--schedule-at <when>` | Future ISO-8601 date-time or Unix seconds |
+| `--reply-to <message-id>` | Send as a reply to this message in the destination chat |
 
 ```sh
 firetg messages send --username alice --text "hello"
 firetg messages send --id 123456789 --text "hello"
 firetg messages send --username alice --file ./photo.jpg --text "caption"
 firetg messages send --username alice --file ./report.pdf --document
+firetg messages send --username alice --text "agreed" --reply-to 101
 ```
 
 Schedule Telegram-native delivery with an explicit timezone:
@@ -45,8 +47,9 @@ firetg messages send \
 
 Relative file paths are resolved from the current working directory. firetg checks that an attachment exists and is a regular file before connecting to Telegram.
 
-Success returns only the new message ID, date, and optional media summary. The
-submitted text/caption is not echoed back into agent context.
+Success returns only the new message ID, date, optional media summary, and
+`replyToMessageId` when the message was sent as a reply. The submitted
+text/caption is not echoed back into agent context.
 
 ::: warning External side effect
 This command can notify another person. Confirm the recipient and content before an agent or script runs it.

@@ -40,9 +40,12 @@ export async function sendTelegramMessage(
               fileName: basename(input.attachment),
             })
           : mediaForPath(input.attachment),
-        { caption: input.text, schedule },
+        { caption: input.text, schedule, replyTo: input.replyTo },
       )
-    : await client.sendText(peer, input.text ?? "", { schedule });
+    : await client.sendText(peer, input.text ?? "", {
+        schedule,
+        replyTo: input.replyTo,
+      });
 
   return serializeSentMessage(sent);
 }
@@ -161,11 +164,13 @@ async function getMessageReadState(
 }
 
 function serializeSentMessage(message: Message): SentMessage {
+  const replyToMessageId = message.replyToMessage?.id ?? undefined;
   return {
     id: message.id,
     date: toUnixSeconds(message.date),
     text: message.text,
     ...(message.media ? { media: serializeMessageMedia(message.media) } : {}),
+    ...(replyToMessageId === undefined ? {} : { replyToMessageId }),
   };
 }
 

@@ -12,7 +12,7 @@ import type { CommandSpec } from "./types";
 export const sendCommand: CommandSpec = {
   id: "messages.send",
   usage:
-    "messages send (--username <username> | --id <user-id>) (--text <message> | --file <path>) [--document] [--schedule-at <when>]",
+    "messages send (--username <username> | --id <user-id>) (--text <message> | --file <path>) [--document] [--schedule-at <when>] [--reply-to <message-id>]",
   help: {
     summary: "Send a message",
     description:
@@ -62,6 +62,11 @@ export const sendCommand: CommandSpec = {
         value: "<when>",
         summary: "Schedule delivery at ISO-8601 date-time or unix seconds",
       },
+      {
+        name: "--reply-to",
+        value: "<message-id>",
+        summary: "Send as a reply to this message id in the destination chat",
+      },
     ],
     examples: [
       {
@@ -84,6 +89,10 @@ export const sendCommand: CommandSpec = {
         command:
           'firetg messages send --username telegram --text "hello later" --schedule-at 2030-07-05T15:00',
         summary: "Schedule a message for later delivery",
+      },
+      {
+        command: 'firetg messages send --username telegram --text "agreed" --reply-to 101',
+        summary: "Reply to an existing message",
       },
     ],
     aliases: ["send"],
@@ -160,6 +169,16 @@ export const sendCommand: CommandSpec = {
       return 1;
     }
 
+    const replyTo = parsePositiveInt(parsed.flags.get("reply-to"));
+    if (parsed.flags.has("reply-to") && replyTo === undefined) {
+      writeInputError(
+        context,
+        sendCommand,
+        "messages send requires --reply-to to be a positive message id",
+      );
+      return 1;
+    }
+
     const scheduledAt = parseScheduledAt(scheduledAtFlag);
     if (parsed.flags.has("schedule-at") && scheduledAt === undefined) {
       writeInputError(
@@ -204,6 +223,11 @@ export const sendCommand: CommandSpec = {
       }
     }
 
+    const delivery = {
+      ...(scheduledAt === undefined ? {} : { scheduledAt }),
+      ...(replyTo === undefined ? {} : { replyTo }),
+    };
+
     return runWithTelegram(
       context,
       async (telegram) => {
@@ -216,17 +240,20 @@ export const sendCommand: CommandSpec = {
                 forceDocument:
                   parsed.flags.has("document") ||
                   parsed.flags.has("force-document"),
-                ...(scheduledAt === undefined ? {} : { scheduledAt }),
+                ...delivery,
               }
-            : scheduledAt === undefined
+            : Object.keys(delivery).length === 0
               ? text ?? ""
-              : { text: text ?? "", scheduledAt },
+              : { text: text ?? "", ...delivery },
         );
         writeSuccess(context, {
           data: {
             id: sent.id,
             date: sent.date,
             ...(sent.media ? { media: sent.media } : {}),
+            ...(sent.replyToMessageId === undefined
+              ? {}
+              : { replyToMessageId: sent.replyToMessageId }),
           },
         });
         return 0;
@@ -243,6 +270,12 @@ function isMissingFile(error: unknown): boolean {
     "code" in error &&
     error.code === "ENOENT"
   );
+}
+
+function parsePositiveInt(value: string | undefined): number | undefined {
+  if (!value || !/^\d+$/.test(value)) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function parseScheduledAt(value: string | undefined): number | undefined {

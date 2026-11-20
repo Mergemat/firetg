@@ -248,6 +248,34 @@ describe("mtcute messages", () => {
     });
   });
 
+  test("passes reply targets to text and media sends and reports them back", async () => {
+    const replyTargets: unknown[] = [];
+    const client = clientFixture({
+      sendText: async (_peer, _text, params) => {
+        replyTargets.push(params?.replyTo);
+        return makeMessage(20, { outgoing: true, replyTo: 1772796 });
+      },
+      sendMedia: async (_peer, _media, params) => {
+        replyTargets.push(params?.replyTo);
+        return makeMessage(21, { outgoing: true, replyTo: 1772796 });
+      },
+    });
+
+    const text = await sendTelegramMessage(client, "clrdrv", {
+      text: "agreed",
+      replyTo: 1772796,
+    });
+    const media = await sendTelegramMessage(client, "clrdrv", {
+      attachment: "/tmp/photo.jpg",
+      replyTo: 1772796,
+    });
+
+    expect(replyTargets).toEqual([1772796, 1772796]);
+    expect([text.replyToMessageId, media.replyToMessageId]).toEqual([
+      1772796, 1772796,
+    ]);
+  });
+
   test("wraps attachments as auto media or forced documents", async () => {
     const media: Array<{ type: string; file: unknown; fileName?: string }> = [];
     const client = clientFixture({
